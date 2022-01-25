@@ -66,18 +66,20 @@
 ** Each in-memory image of a page begins with the following header.
 ** This header is only visible to this pager module.  The client
 ** code that calls pager sees only the data that follows the header.
+** -
+** page在内存中的结构,但是使用者只能获取到首个Pager结构对象，并不能得到PgHdr
 */
 typedef struct PgHdr PgHdr;
 struct PgHdr {
-  Pager *pPager;                 /* The pager to which this page belongs */
+  Pager *pPager;                 /* The pager to which this page belongs|这个Page对外能看到的结构,这看起来像是页面管理器？ */
   Pgno pgno;                     /* The page number for this page */
-  PgHdr *pNextHash, *pPrevHash;  /* Hash collision chain for PgHdr.pgno */
-  int nRef;                      /* Number of users of this page */
-  PgHdr *pNextFree, *pPrevFree;  /* Freelist of pages where nRef==0 */
-  PgHdr *pNextAll, *pPrevAll;    /* A list of all pages */
-  char inJournal;                /* TRUE if has been written to journal */
-  char inCkpt;                   /* TRUE if written to the checkpoint journal */
-  char dirty;                    /* TRUE if we need to write back changes */
+  PgHdr *pNextHash, *pPrevHash;  /* Hash collision chain for PgHdr.pgno| PageId的哈希冲突链,也就是说,如果两个Page的pageId的哈希值相同，则这些产生哈希碰撞的Page也组成一段双向链表 */
+  int nRef;                      /* Number of users of this page| 该Page的引用数 */
+  PgHdr *pNextFree, *pPrevFree;  /* Freelist of pages where nRef==0| 引用数为0的Page组成的双向链表 */
+  PgHdr *pNextAll, *pPrevAll;    /* A list of all pages|有关所有Page的集合，这里通过保存Page链表的上下两个指针来表示，通过这两个指针可以以该Page为起始向两头遍历Page链表 */
+  char inJournal;                /* TRUE if has been written to journal|该Page有被写入到journal中 */
+  char inCkpt;                   /* TRUE if written to the checkpoint journal|该Page有被写入到检查点日志中 */
+  char dirty;                    /* TRUE if we need to write back changes|该Page有被写入数据 */
   /* SQLITE_PAGE_SIZE bytes of page data follow this header */
   /* Pager.nExtra bytes of local data follow the page data */
 };
