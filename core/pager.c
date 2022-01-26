@@ -100,36 +100,37 @@ struct PgHdr {
 
 /*
 ** A open page cache is an instance of the following structure.
+** 提供给使用者的结构类型，创建了Page之后使用者对Page进行操作需要通过该结构，而不是PgHdr结构体
 */
 struct Pager {
-  char *zFilename;            /* Name of the database file */
-  char *zJournal;             /* Name of the journal file */
-  OsFile fd, jfd;             /* File descriptors for database and journal */
-  OsFile cpfd;                /* File descriptor for the checkpoint journal */
-  int dbSize;                 /* Number of pages in the file */
-  int origDbSize;             /* dbSize before the current change */
-  int ckptSize, ckptJSize;    /* Size of database and journal at ckpt_begin() */
-  int nExtra;                 /* Add this many bytes to each in-memory page */
-  void (*xDestructor)(void*); /* Call this routine when freeing pages */
-  int nPage;                  /* Total number of in-memory pages */
-  int nRef;                   /* Number of in-memory pages with PgHdr.nRef>0 */
-  int mxPage;                 /* Maximum number of pages to hold in cache */
-  int nHit, nMiss, nOvfl;     /* Cache hits, missing, and LRU overflows */
-  u8 journalOpen;             /* True if journal file descriptors is valid */
-  u8 ckptOpen;                /* True if the checkpoint journal is open */
-  u8 ckptInUse;               /* True we are in a checkpoint */
-  u8 noSync;                  /* Do not sync the journal if true */
-  u8 state;                   /* SQLITE_UNLOCK, _READLOCK or _WRITELOCK */
-  u8 errMask;                 /* One of several kinds of errors */
-  u8 tempFile;                /* zFilename is a temporary file */
-  u8 readOnly;                /* True for a read-only database */
-  u8 needSync;                /* True if an fsync() is needed on the journal */
-  u8 dirtyFile;               /* True if database file has changed in any way */
-  u8 *aInJournal;             /* One bit for each page in the database file */
-  u8 *aInCkpt;                /* One bit for each page in the database */
-  PgHdr *pFirst, *pLast;      /* List of free pages */
-  PgHdr *pAll;                /* List of all pages */
-  PgHdr *aHash[N_PG_HASH];    /* Hash table to map page number of PgHdr */
+  char *zFilename;            /* Name of the database file| 数据库文件 */
+  char *zJournal;             /* Name of the journal file| Journal文件 */
+  OsFile fd, jfd;             /* File descriptors for database and journal| 数据库文件、journal文件描述符 */
+  OsFile cpfd;                /* File descriptor for the checkpoint journal| journal检查点文件描述符 */
+  int dbSize;                 /* Number of pages in the file| 数据库文件中Page的数量 */
+  int origDbSize;             /* dbSize before the current change |本次修改前的数据库大小 */
+  int ckptSize, ckptJSize;    /* Size of database and journal at ckpt_begin()| 数据库大小和检查点的偏移量? 这里的数据库大小和上一个origDbSize有什么区别吗?  */
+  int nExtra;                 /* Add this many bytes to each in-memory page | 用户额外数据大小 */
+  void (*xDestructor)(void*); /* Call this routine when freeing pages | 释放Page时调用该函数。 释放是指从Page链表中将这个Page移除吗?*/
+  int nPage;                  /* Total number of in-memory pages| 在内存中的Page总数量 */
+  int nRef;                   /* Number of in-memory pages with PgHdr.nRef>0 | 引用数大于0的Page数量 */
+  int mxPage;                 /* Maximum number of pages to hold in cache| 缓存中保存的最大Page数, Cache应该是Page链表吧? 这和上面的nPage有什么区别吗? */
+  int nHit, nMiss, nOvfl;     /* Cache hits, missing, and LRU overflows| 缓存命中、丢失、LRU溢出数量，看起来Cache应该是根据PageNo的哈希值为key的哈希表? */
+  u8 journalOpen;             /* True if journal file descriptors is valid| 如果journal功能开启，则为true  */
+  u8 ckptOpen;                /* True if the checkpoint journal is open | 如果journal检查点功能开启，则为trur。这样看来journal和journal checkpoint是两个不同的功能? */
+  u8 ckptInUse;               /* True we are in a checkpoint| 如果Page在检查点中，则为true。这意思是这个Page已经被写入到checkpoint中吗? */
+  u8 noSync;                  /* Do not sync the journal if true| 写入journal文件的时候如果不同步写入，则为true */
+  u8 state;                   /* SQLITE_UNLOCK, _READLOCK or _WRITELOCK| 状态：未加锁、读锁、写锁 */
+  u8 errMask;                 /* One of several kinds of errors| 错误信息? */
+  u8 tempFile;                /* zFilename is a temporary file| 如果zFilename是一个临时文件，则为true */
+  u8 readOnly;                /* True for a read-only database| 如果是只读的数据库，则为true */
+  u8 needSync;                /* True if an fsync() is needed on the journal | 写入journal文件的时候是否需要同步写入?这个和上面的noSync有什么区别吗? */
+  u8 dirtyFile;               /* True if database file has changed in any way| 如果这个数据库文件有被修改，则为true  */
+  u8 *aInJournal;             /* One bit for each page in the database file| 每个数据库文件的Page中都有一位，啥意思？ */
+  u8 *aInCkpt;                /* One bit for each page in the database | 每个数据库的Page中都有一位，啥意思？ */
+  PgHdr *pFirst, *pLast;      /* List of free pages | 没有被使用的Page组成的链表的首尾节点 */
+  PgHdr *pAll;                /* List of all pages | 总的Page链表的头节点 */
+  PgHdr *aHash[N_PG_HASH];    /* Hash table to map page number of PgHdr | 根据PageId查询PgHdr结构的哈希表 */
 };
 
 /*
