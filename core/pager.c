@@ -26,6 +26,7 @@
 #include "os.h"
 #include <assert.h>
 #include <string.h>
+#include <stdio.h>
 
 /*
 ** The page cache as a whole is always in one of the following
@@ -82,19 +83,24 @@ struct PgHdr {
   char dirty;                    /* TRUE if we need to write back changes|该Page有被写入数据 */
   /* SQLITE_PAGE_SIZE bytes of page data follow this header */
   /* Pager.nExtra bytes of local data follow the page data */
+  /* 额外数据跟随在这之后,也就是说，一个PgHdr的连续内存空间大小除了SQLLITE_PAGE_SIZE之外还有一段"隐藏"的nExtra数据，这部分数据跟随在PgHdr对象之后,通过下面的PGHDR_TO_EXTRA宏来获取, */
 };
 
 /*
 ** Convert a pointer to a PgHdr into a pointer to its data
 ** and back again.
+** 将一个指向PgHdr的指针转化为指向PgHdr数据的指针
+** 本质上是将一块连续的内存空间格式化为PgHdr对象
 */
 #define PGHDR_TO_DATA(P)  ((void*)(&(P)[1]))
 #define DATA_TO_PGHDR(D)  (&((PgHdr*)(D))[-1])
+/* 这里也是一样，在一块可以格式化为PgHdr对象的连续内存空间中，通过数据的偏移量找到Extra所在的内存区域并返回 */
 #define PGHDR_TO_EXTRA(P) ((void*)&((char*)(&(P)[1]))[SQLITE_PAGE_SIZE])
 
 /*
 ** How big to make the hash table used for locating in-memory pages
 ** by page number.  Knuth says this should be a prime number.
+** 根据PageNumber定位Pager的哈希数组大小。最好是一个素数
 */
 #define N_PG_HASH 2003
 
@@ -145,16 +151,18 @@ struct Pager {
 /*
 ** The journal file contains page records in the following
 ** format.
+** journal文件包含以下格式的日志记录
 */
 typedef struct PageRecord PageRecord;
 struct PageRecord {
-  Pgno pgno;                     /* The page number */
-  char aData[SQLITE_PAGE_SIZE];  /* Original data for page pgno */
+  Pgno pgno;                     /* The page number| Page Number */
+  char aData[SQLITE_PAGE_SIZE];  /* Original data for page pgno | Page的原始数据,不包含额外数据 */
 };
 
 /*
 ** Journal files begin with the following magic string.  The data
 ** was obtained from /dev/random.  It is used only as a sanity check.
+** 日志文件开头的magic string,用于文件健全性检查
 */
 static const unsigned char aJournalMagic[] = {
   0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd4,
@@ -162,6 +170,7 @@ static const unsigned char aJournalMagic[] = {
 
 /*
 ** Hash a page number
+** 对一个Page Number求哈希
 */
 #define pager_hash(PN)  ((PN)%N_PG_HASH)
 
@@ -187,6 +196,7 @@ static const unsigned char aJournalMagic[] = {
 /*
 ** Convert the bits in the pPager->errMask into an approprate
 ** return code.
+** 根据Pager的errMask获取错误信息
 */
 static int pager_errcode(Pager *pPager){
   int rc = SQLITE_OK;
@@ -489,16 +499,22 @@ static int sqlitepager_opentemp(char *zFile, OsFile *fd){
 ** The file to be cached need not exist.  The file is not locked until
 ** the first call to sqlitepager_get() and is only held open until the
 ** last page is released using sqlitepager_unref().
+** 创建一个新的page缓存，并在ppPager中放置一个指向page缓存的指针。
+** 要缓存的文件不必存在,该文件在第一次调用sqlitepager_get()之前不会被锁定，并且仅在使用sqlitepager_unref()释放最后一页之前保持打开状态
 **
 ** If zFilename is NULL then a randomly-named temporary file is created
 ** and used as the file to be cached.  The file will be deleted
 ** automatically when it is closed.
+** 如果zFilename为NULL，则创建一个临时文件，并在程序结束的时候自动删除
+** 
+** 
+** 在这里得到的Pager只是初始化，并没有加入到总的Pager链表当中
 */
 int sqlitepager_open(
-  Pager **ppPager,         /* Return the Pager structure here */
-  const char *zFilename,   /* Name of the database file to open */
-  int mxPage,              /* Max number of in-memory cache pages */
-  int nExtra               /* Extra bytes append to each in-memory page */
+  Pager **ppPager,         /* Return the Pager structure here| 创建的Pager指针 */
+  const char *zFilename,   /* Name of the database file to open| 要打开的数据库文件 */
+  int mxPage,              /* Max number of in-memory cache pages| 内存中Page的最大缓存数 */
+  int nExtra               /* Extra bytes append to each in-memory page| Page中的额外信息大小 */
 ){
   Pager *pPager;
   int nameLen;
@@ -510,12 +526,15 @@ int sqlitepager_open(
 
   *ppPager = 0;
   if( sqlite_malloc_failed ){
+    // sqlite获取内存失败
     return SQLITE_NOMEM;
   }
   if( zFilename ){
+    // 从zFilename获取文件读写句柄，这时候并没有锁定文件
     rc = sqliteOsOpenReadWrite(zFilename, &fd, &readOnly);
     tempFile = 0;
   }else{
+    // 从临时文件夹中创建一个文件
     rc = sqlitepager_opentemp(zTemp, &fd);
     zFilename = zTemp;
     tempFile = 1;
@@ -523,18 +542,28 @@ int sqlitepager_open(
   if( rc!=SQLITE_OK ){
     return SQLITE_CANTOPEN;
   }
+  // 获取zFilename长度
   nameLen = strlen(zFilename);
+
+  // 开辟一块内存空间
   pPager = malloc(sizeof(*pPager) + nameLen*2 + 30);
   memset(pPager, 0, sizeof(*pPager) + nameLen*2 + 30);
   if( pPager==0 ){
+    // 如果获取内存空间失败
     sqliteOsClose(&fd);
     return SQLITE_NOMEM;
   }
+
+  // 在pPager之后获取一块内存空间
   pPager->zFilename = (char*)&pPager[1];
+  // 在zFilename之后获取一块空间
   pPager->zJournal = &pPager->zFilename[nameLen+1];
+  // 内存空间的布局应该是这样[Pager][zFilename][zJournal]
+  // 这种数组的写法就是对指针的移动
   strcpy(pPager->zFilename, zFilename);
   strcpy(pPager->zJournal, zFilename);
   strcpy(&pPager->zJournal[nameLen], "-journal");
+
   pPager->fd = fd;
   pPager->journalOpen = 0;
   pPager->ckptOpen = 0;
@@ -556,6 +585,7 @@ int sqlitepager_open(
   pPager->nExtra = nExtra;
   memset(pPager->aHash, 0, sizeof(pPager->aHash));
   *ppPager = pPager;
+
   return SQLITE_OK;
 }
 
@@ -716,18 +746,23 @@ static int syncAllPages(Pager *pPager){
 
 /*
 ** Acquire a page.
+** 获取Page
 **
 ** A read lock on the disk file is obtained when the first page is acquired. 
 ** This read lock is dropped when the last page is released.
+** 当获取这个文件的第一个Page时会对其添加读锁，在在这文件最后一个Page被释放时读锁才会被释放
 **
 ** A _get works for any page number greater than 0.  If the database
 ** file is smaller than the requested page, then no actual disk
 ** read occurs and the memory image of the page is initialized to
 ** all zeros.  The extra data appended to a page is always initialized
 ** to zeros the first time a page is loaded into memory.
-**
+** _get适用于任何大于0的page number, 如果数据库文件小于要请求的page，则不会发生实际的磁盘读取,
+** 并且page的磁盘镜像被初始化为0. Page第一次加载到内存中时，附加到Page的额外数据始终初始化为0
+** 
 ** The acquisition might fail for several reasons.  In all cases,
 ** an appropriate error code is returned and *ppPage is set to NULL.
+** 获取Page失败可能会有很多原因，一旦出现该问题，都会将ppPage指针指向NULL
 **
 ** See also sqlitepager_lookup().  Both this routine and _lookup() attempt
 ** to find a page in the in-memory cache first.  If the page is not already
@@ -736,11 +771,19 @@ static int syncAllPages(Pager *pPager){
 ** has to go to disk, and could also playback an old journal if necessary.
 ** Since _lookup() never goes to disk, it never has to deal with locks
 ** or journal files.
+** 
+** 另外可以参照sqlitepager_lookup()。改函数和_lookup()都首先尝试在内存缓存中查询Page。
+** 如果Page还不在内存中，这个函数回去磁盘读取，而_lookup()只返回0。
+** 该函数在第一次进入磁盘时获取一个读锁，并且在必要的时候会复现日志。
+** 由于_lookup()永远不会进入磁盘，因此它永远不必处理锁或者日志文件
+** > _lookup()是啥？所有以_lookup()结尾的函数吗?
+**
 */
 int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
   PgHdr *pPg;
 
   /* Make sure we have not hit any critical errors.
+    错误检查
   */ 
   if( pPager==0 || pgno==0 ){
     return SQLITE_ERROR;
@@ -751,6 +794,8 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
 
   /* If this is the first page accessed, then get a read lock
   ** on the database file.
+  ** 如果pager的引用数为0，则该Pager是数据库文件中的第一个Page，我们需要对其添加读锁
+  ** 
   */
   if( pPager->nRef==0 ){
     if( sqliteOsReadLock(&pPager->fd)!=SQLITE_OK ){
