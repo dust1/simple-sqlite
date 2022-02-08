@@ -68,7 +68,8 @@
 ** This header is only visible to this pager module.  The client
 ** code that calls pager sees only the data that follows the header.
 ** -
-** page在内存中的结构,但是使用者只能获取到首个Pager结构对象，并不能得到PgHdr
+** page在内存中的结构
+** 页面的描述,这个是不会给用户看到的
 */
 typedef struct PgHdr PgHdr;
 struct PgHdr {
@@ -89,12 +90,12 @@ struct PgHdr {
 /*
 ** Convert a pointer to a PgHdr into a pointer to its data
 ** and back again.
-** 将一个指向PgHdr的指针转化为指向PgHdr数据的指针
-** 本质上是将一块连续的内存空间格式化为PgHdr对象
 */
+// 获取PgHdr的数据指针，在这里一个Page的实际内容紧跟在PgHdr内存区域之后
 #define PGHDR_TO_DATA(P)  ((void*)(&(P)[1]))
 #define DATA_TO_PGHDR(D)  (&((PgHdr*)(D))[-1])
 /* 这里也是一样，在一块可以格式化为PgHdr对象的连续内存空间中，通过数据的偏移量找到Extra所在的内存区域并返回 */
+// 获取Page的额外数据空间所在
 #define PGHDR_TO_EXTRA(P) ((void*)&((char*)(&(P)[1]))[SQLITE_PAGE_SIZE])
 
 /*
@@ -107,6 +108,7 @@ struct PgHdr {
 /*
 ** A open page cache is an instance of the following structure.
 ** 提供给使用者的结构类型，创建了Page之后使用者对Page进行操作需要通过该结构，而不是PgHdr结构体
+** 页面管理对象
 */
 struct Pager {
   char *zFilename;            /* Name of the database file| 数据库文件 */
@@ -211,10 +213,13 @@ static int pager_errcode(Pager *pPager){
 /*
 ** Find a page in the hash table given its page number.  Return
 ** a pointer to the page or NULL if not found.
+** 根据page number从哈希表中获取Page，返回的是一个指向Page的指针。
+** 如果不存在Page则该指针为NULL
 */
 static PgHdr *pager_lookup(Pager *pPager, Pgno pgno){
   PgHdr *p = pPager->aHash[pgno % N_PG_HASH];
   while( p && p->pgno!=pgno ){
+    // 由于存在哈希碰撞，在获取到哈希值所在的指针后还需要遍历哈希链表
     p = p->pNextHash;
   }
   return p;
@@ -1040,7 +1045,7 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
     // 引用计数递增
     page_ref(pPg);
   }
-  // 指针指向page的内存位
+  // 指针指向该Page的数据位
   *ppPage = PGHDR_TO_DATA(pPg);
   return SQLITE_OK;
 }
@@ -1049,12 +1054,16 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
 ** Acquire a page if it is already in the in-memory cache.  Do
 ** not read the page from disk.  Return a pointer to the page,
 ** or 0 if the page is not in cache.
+** 如果Page已经位于内存缓存中，不要从磁盘读取该Page.
+** 返回一个指向内存中Page的指针,如果Page不在内存中，则返回0
 **
 ** See also sqlitepager_get().  The difference between this routine
 ** and sqlitepager_get() is that _get() will go to the disk and read
 ** in the page if the page is not already in cache.  This routine
 ** returns NULL if the page is not in cache or if a disk I/O error 
 ** has ever happened.
+** 该方法和sqlitepager_get()的区别在于所有_get()方法在Page不存在内存中的时候都会去磁盘里获取
+** 该方法则会在Page不存在内存中或者曾经发生IO异常的时候返回NULL
 */
 void *sqlitepager_lookup(Pager *pPager, Pgno pgno){
   PgHdr *pPg;
@@ -1188,18 +1197,26 @@ int sqlitepager_begin(void *pData){
 ** Mark a data page as writeable.  The page is written into the journal 
 ** if it is not there already.  This routine must be called before making
 ** changes to a page.
+** 将数据页标记为可写。如果页面不存在则将其写入日志。在对页面进行修改时必须调用该函数
 **
 ** The first time this routine is called, the pager creates a new
 ** journal and acquires a write lock on the database.  If the write
 ** lock could not be acquired, this routine returns SQLITE_BUSY.  The
 ** calling routine must check for that return value and be careful not to
 ** change any page data until this routine returns SQLITE_OK.
+** 第一次调用该函数的时候，pager创建一个新的日志并获取数据库上的写锁。
+** 如果无法获取写锁，则返回SQLITE_BUSY。调用该函数必须检查返回值，并注意在返回SQLITE_OK前不要修改任何Page
 **
 ** If the journal file could not be written because the disk is full,
 ** then this routine returns SQLITE_FULL and does an immediate rollback.
 ** All subsequent write attempts also return SQLITE_FULL until there
 ** is a call to sqlitepager_commit() or sqlitepager_rollback() to
 ** reset.
+** 如果磁盘已满而无法写入日志，则返回SQLITE_FULL并立即回滚.
+** 所有后续的写入尝试也会返回SQLITE_FULL，直到调用sqlitepager_commit()
+** 或sqlitepager_rollback()来重置日志文件
+** commit/rollback操作会删除日志文件?
+** 
 */
 int sqlitepager_write(void *pData){
   PgHdr *pPg = DATA_TO_PGHDR(pData);
