@@ -120,9 +120,9 @@ struct Pager {
   void (*xDestructor)(void*); /* Call this routine when freeing pages | 释放Page时调用该函数。 释放是指从Page链表中将这个Page移除吗?*/
   int nPage;                  /* Total number of in-memory pages| 在内存中的Page总数量 */
   int nRef;                   /* Number of in-memory pages with PgHdr.nRef>0 | 引用数大于0的Page数量 */
-  int mxPage;                 /* Maximum number of pages to hold in cache| 缓存中保存的最大Page数, Cache应该是Page链表吧? 这和上面的nPage有什么区别吗? */
-  int nHit, nMiss, nOvfl;     /* Cache hits, missing, and LRU overflows| 缓存命中、丢失、LRU溢出数量，看起来Cache应该是根据PageNo的哈希值为key的哈希表? */
-  u8 journalOpen;             /* True if journal file descriptors is valid| 如果journal功能开启，则为true  */
+  int mxPage;                 /* Maximum number of pages to hold in cache| 缓存中保存的最大Page数 */
+  int nHit, nMiss, nOvfl;     /* Cache hits, missing, and LRU overflows| 缓存命中、丢失、LRU溢出数量，这里的缓存命中的统计是在获取Pager的时候是否从内存中获取.如果需要从磁盘获取，则nMiss+1 */
+  u8 journalOpen;             /* True if journal file descriptors is valid| 如果journal文件已被打开(这里的打开表示Pager获取到了日志文件的读写锁)则为true  */
   u8 ckptOpen;                /* True if the checkpoint journal is open | 如果journal检查点功能开启，则为trur。这样看来journal和journal checkpoint是两个不同的功能? */
   u8 ckptInUse;               /* True we are in a checkpoint| 如果Page在检查点中，则为true。这意思是这个Page已经被写入到checkpoint中吗? */
   u8 noSync;                  /* Do not sync the journal if true| 写入journal文件的时候如果不同步写入，则为true */
@@ -136,7 +136,7 @@ struct Pager {
   u8 *aInCkpt;                /* One bit for each page in the database | 每个数据库的Page中都有一位，啥意思？ */
   PgHdr *pFirst, *pLast;      /* List of free pages | 没有被使用的Page组成的链表的首尾节点 */
   PgHdr *pAll;                /* List of all pages | 总的Page链表的头节点 */
-  PgHdr *aHash[N_PG_HASH];    /* Hash table to map page number of PgHdr | 根据PageId查询PgHdr结构的哈希表 */
+  PgHdr *aHash[N_PG_HASH];    /* Hash table to map page number of PgHdr | 根据PageId查询PgHdr结构的哈希表, 这张表看起来值保存空闲Page */
 };
 
 /*
@@ -604,6 +604,7 @@ void sqlitepager_set_destructor(Pager *pPager, void (*xDesc)(void*)){
 /*
 ** Return the total number of pages in the disk file associated with
 ** pPager.
+** 获取磁盘上数据库文件中所有Page数量
 */
 int sqlitepager_pagecount(Pager *pPager){
   int n;
@@ -676,6 +677,7 @@ Pgno sqlitepager_pagenumber(void *pData){
 ** Increment the reference count for a page.  If the page is
 ** currently on the freelist (the reference count is zero) then
 ** remove it from the freelist.
+** 增加page引用计数，如果当前page在空闲链表中，则将其删除
 */
 static void page_ref(PgHdr *pPg){
   if( pPg->nRef==0 ){
@@ -798,6 +800,7 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
   ** 
   */
   if( pPager->nRef==0 ){
+    // 修改pPager的状态,改为读锁状态
     if( sqliteOsReadLock(&pPager->fd)!=SQLITE_OK ){
       *ppPage = 0;
       return SQLITE_BUSY;
@@ -805,17 +808,21 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
     pPager->state = SQLITE_READLOCK;
 
     /* If a journal file exists, try to play it back.
+    如果日志文件存在，则尝试复现
     */
     if( sqliteOsFileExists(pPager->zJournal) ){
        int rc, dummy;
 
        /* Get a write lock on the database
+       对数据库文件获取写锁
        */
        rc = sqliteOsWriteLock(&pPager->fd);
        if( rc!=SQLITE_OK ){
+         // 获取失败，释放所有的锁
          rc = sqliteOsUnlock(&pPager->fd);
          assert( rc==SQLITE_OK );
          *ppPage = 0;
+         // 数据库文件已经被锁定
          return SQLITE_BUSY;
        }
        pPager->state = SQLITE_WRITELOCK;
@@ -826,6 +833,7 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
        ** Even though we will only be reading from the journal, not writing,
        ** we have to open the journal for writing in order to obtain an
        ** exclusive access lock.
+       ** 获取日志文件的读写锁
        */
        rc = sqliteOsOpenReadWrite(pPager->zJournal, &pPager->jfd, &dummy);
        if( rc!=SQLITE_OK ){
@@ -834,10 +842,12 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
          *ppPage = 0;
          return SQLITE_BUSY;
        }
+       // 设置日志文件打开标记
        pPager->journalOpen = 1;
 
        /* Playback and delete the journal.  Drop the database write
        ** lock and reacquire the read lock.
+       ** 将日志中的修改都应用到数据库文件后将日志删除，并释放数据库文件的写锁，并重新尝试获取读锁
        */
        rc = pager_playback(pPager);
        if( rc!=SQLITE_OK ){
@@ -847,36 +857,53 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
     pPg = 0;
   }else{
     /* Search for page in cache */
+    // Pager的引用大于0，表示内存中已经存在同一文件的Pager。则尝试从内存中获取
     pPg = pager_lookup(pPager, pgno);
   }
   if( pPg==0 ){
+    // Pager是这个数据库文件第一个Pager,请求的Page不在缓存中
     /* The requested page is not in the page cache. */
     int h;
+    // 缓存未命中计数器
     pPager->nMiss++;
     if( pPager->nPage<pPager->mxPage || pPager->pFirst==0 ){
       /* Create a new page */
+      // 新建一个PgHdr
       pPg = malloc( sizeof(*pPg) + SQLITE_PAGE_SIZE + pPager->nExtra  );
       memset(pPg, 0, sizeof(*pPg) + SQLITE_PAGE_SIZE + pPager->nExtra );
       if( pPg==0 ){
+        // 内存分配失败
         *ppPage = 0;
         pager_unwritelock(pPager);
         pPager->errMask |= PAGER_ERR_MEM;
         return SQLITE_NOMEM;
       }
+      // PgHdr的页面指向Pager
       pPg->pPager = pPager;
+      // 如果是第一个Page，这里应该为NULL
       pPg->pNextAll = pPager->pAll;
       if( pPager->pAll ){
+        // 将新创建的PgHdr放入链表头结点
         pPager->pAll->pPrevAll = pPg;
       }
+      // 新的PgHdr是头结点，所有prevAll为0
       pPg->pPrevAll = 0;
+      // 设置Pager上的头结点
       pPager->pAll = pPg;
+      // Page计数器递增
       pPager->nPage++;
     }else{
+      // 缓存中的Page已满，需要释放旧Page
       /* Recycle an older page.  First locate the page to be recycled.
       ** Try to find one that is not dirty and is near the head of
       ** of the free list */
+      // 定位回收Page，尝试寻找一个没有修改且靠近空闲列表头部的。
+      // 这个Page可以减少相关操作，不需要有写入流程
+
+      // 获取空闲链表头结点
       pPg = pPager->pFirst;
       while( pPg && pPg->dirty ){
+        // 寻找没有被修改的PgHdr
         pPg = pPg->pNextFree;
       }
 
@@ -885,54 +912,80 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
       ** dirty free pages into the database file, thus making them
       ** clean pages and available for recycling.
       **
+      ** 如果找不到最近没有被修改的空闲页面，则同步日志，并将所有脏的空闲页面写入数据库文件中。
+      ** 使他们成为干净的页面可供回收
+      **
       ** We have to sync the journal before writing a page to the main
       ** database.  But syncing is a very slow operation.  So after a
       ** sync, it is best to write everything we can back to the main
       ** database to minimize the risk of having to sync again in the
       ** near future.  That is way we write all dirty pages after a
       ** sync.
+      **
+      ** 在将page写入主数据库之前，我们必须同步日志。
+      ** 但是同步是一个非常缓慢的操作。因此，在同步之后，最好将我们可以写的内容全部写入到主数据库，以减少
+      ** 在将来需要再次同步的风险。
       */
       if( pPg==0 ){
+        // 没有未被修改的空闲page
+        // 同步所有page
         int rc = syncAllPages(pPager);
         if( rc!=0 ){
           sqlitepager_rollback(pPager);
           *ppPage = 0;
           return SQLITE_IOERR;
         }
+        // 释放完成后，PgHdr就可以从空闲链表的头结点直接获取
         pPg = pPager->pFirst;
       }
       assert( pPg->nRef==0 );
       assert( pPg->dirty==0 );
 
       /* Unlink the old page from the free list and the hash table
+      从空闲链表和哈希表中取消链接旧页面
       */
+
+      // 这一段代码就是从双向链表中删除某个节点是的修改前后节点指针的逻辑
       if( pPg->pPrevFree ){
+        // 如果分配的PgHdr的前缀空闲节点存在，则将前缀空闲节点的next指针指向自身的next空闲节点
         pPg->pPrevFree->pNextFree = pPg->pNextFree;
       }else{
+        // PgHdr位于空闲链表头结点
         assert( pPager->pFirst==pPg );
+        // 空闲链表头结点指针指向next
         pPager->pFirst = pPg->pNextFree;
       }
+      // 同上，这里是修改next节点的prev指针指向
       if( pPg->pNextFree ){
         pPg->pNextFree->pPrevFree = pPg->pPrevFree;
       }else{
         assert( pPager->pLast==pPg );
         pPager->pLast = pPg->pPrevFree;
       }
+
+      // PgHdr已被移出空闲链表，两个指针置为0
       pPg->pNextFree = pPg->pPrevFree = 0;
+
+      // 哈希链表也跟双向链表删除一个逻辑
       if( pPg->pNextHash ){
         pPg->pNextHash->pPrevHash = pPg->pPrevHash;
       }
       if( pPg->pPrevHash ){
         pPg->pPrevHash->pNextHash = pPg->pNextHash;
       }else{
+        // 如果这个PgHdr是哈希链表的头结点, 则将Page中的Hash数组的值修改为他的next哈希节点
+        // Page中的aHash保存的是哈希值相同的空闲节点
         h = pager_hash(pPg->pgno);
         assert( pPager->aHash[h]==pPg );
         pPager->aHash[h] = pPg->pNextHash;
       }
+      // 移除哈希链表
       pPg->pNextHash = pPg->pPrevHash = 0;
+      // LRU计数器递增
       pPager->nOvfl++;
     }
     pPg->pgno = pgno;
+    // ?
     if( pPager->aInJournal && (int)pgno<=pPager->origDbSize ){
       pPg->inJournal = (pPager->aInJournal[pgno/8] & (1<<(pgno&7)))!=0;
     }else{
@@ -943,21 +996,31 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
     }else{
       pPg->inCkpt = 0;
     }
+
+    // 新建的PgHdr未被修改，且在get的时候才会创建，因此引用计数为1
     pPg->dirty = 0;
     pPg->nRef = 1;
     REFINFO(pPg);
+    // Page的计数器也要加1
     pPager->nRef++;
+    // 求要获取的Page number的哈希值
+    // 将新的PgHdr放入哈希链表的头结点
     h = pager_hash(pgno);
     pPg->pNextHash = pPager->aHash[h];
     pPager->aHash[h] = pPg;
     if( pPg->pNextHash ){
+      // 确保aHash[h]是头结点
       assert( pPg->pNextHash->pPrevHash==0 );
       pPg->pNextHash->pPrevHash = pPg;
     }
+
+    // 该文件在程序运行过程中的第一个Page,需要获取数据库文件中的page数量
     if( pPager->dbSize<0 ) sqlitepager_pagecount(pPager);
     if( pPager->dbSize<(int)pgno ){
+      // 数据库文件page数量小于page number, 这是一个新的page
       memset(PGHDR_TO_DATA(pPg), 0, SQLITE_PAGE_SIZE);
     }else{
+      // 从数据库文件中读取page内容
       int rc;
       sqliteOsSeek(&pPager->fd, (pgno-1)*SQLITE_PAGE_SIZE);
       rc = sqliteOsRead(&pPager->fd, PGHDR_TO_DATA(pPg), SQLITE_PAGE_SIZE);
@@ -965,14 +1028,19 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
         return rc;
       }
     }
+
+    // 如果page中存在额外数据空间，则将page后的额外数据内存块初始化为0
     if( pPager->nExtra>0 ){
       memset(PGHDR_TO_EXTRA(pPg), 0, pPager->nExtra);
     }
   }else{
     /* The requested page is in the page cache. */
+    // 请求的page在内存中，缓存命中计数器递增
     pPager->nHit++;
+    // 引用计数递增
     page_ref(pPg);
   }
+  // 指针指向page的内存位
   *ppPage = PGHDR_TO_DATA(pPg);
   return SQLITE_OK;
 }
