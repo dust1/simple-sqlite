@@ -537,11 +537,13 @@ int sqliteOsSeek(OsFile *id, int offset){
 
 /*
 ** Make sure all writes to a particular file are committed to disk.
+** 确保对文件的所有写入都提交到磁盘
 */
 int sqliteOsSync(OsFile *id){
     SimulateIOError(SQLITE_IOERR);
     TRACE1("SYNC\n");
 #if OS_UNIX
+    // 将位于系统缓冲区的某个文件缓存刷入磁盘
     return fsync(id->fd)==0 ? SQLITE_OK : SQLITE_IOERR;
 #endif
 #if OS_WIN

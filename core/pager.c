@@ -132,7 +132,7 @@ struct Pager {
   u8 errMask;                 /* One of several kinds of errors| 错误信息? */
   u8 tempFile;                /* zFilename is a temporary file| 如果zFilename是一个临时文件，则为true */
   u8 readOnly;                /* True for a read-only database| 如果是只读的数据库，则为true */
-  u8 needSync;                /* True if an fsync() is needed on the journal | 写入journal文件的时候是否需要同步写入?这个和上面的noSync有什么区别吗? */
+  u8 needSync;                /* True if an fsync() is needed on the journal | 在将Page写入磁盘前需要通过系统调用将日志文件强制刷入磁盘 */
   u8 dirtyFile;               /* True if database file has changed in any way| 如果这个数据库文件有被修改，则为true  */
   u8 *aInJournal;             /* One bit for each page in the database file| 每个数据库文件的Page中都有一位，啥意思？ */
   u8 *aInCkpt;                /* One bit for each page in the database | 每个数据库的Page中都有一位，啥意思？ */
@@ -1367,21 +1367,25 @@ void sqlitepager_dont_rollback(void *pData){
 
 /*
 ** Commit all changes to the database and release the write lock.
+** 提交所有修改到数据库并释放写锁
 **
 ** If the commit fails for any reason, a rollback attempt is made
 ** and an error code is returned.  If the commit worked, SQLITE_OK
 ** is returned.
+** 如果提交失败则回滚数据并返回错误码。如果提交成功则返回SQLITE_OK
 */
 int sqlitepager_commit(Pager *pPager){
   int rc;
   PgHdr *pPg;
 
   if( pPager->errMask==PAGER_ERR_FULL ){
+    // 写入时发生异常，回滚数据
     rc = sqlitepager_rollback(pPager);
     if( rc==SQLITE_OK ) rc = SQLITE_FULL;
     return rc;
   }
   if( pPager->errMask!=0 ){
+    // 出现出写入异常外的其他异常
     rc = pager_errcode(pPager);
     return rc;
   }
@@ -1392,21 +1396,28 @@ int sqlitepager_commit(Pager *pPager){
   if( pPager->dirtyFile==0 ){
     /* Exit early (without doing the time-consuming sqliteOsSync() calls)
     ** if there have been no changes to the database file. */
+    // 如果文件没有被修改，则不需要进行写入
+    // 释放数据库文件的写锁并获取读锁，同时删除日志文件
     rc = pager_unwritelock(pPager);
     pPager->dbSize = -1;
     return rc;
   }
   if( pPager->needSync && sqliteOsSync(&pPager->jfd)!=SQLITE_OK ){
+    // 如果Page需要同步刷入磁盘，且将日志文件缓存刷入磁盘失败后进行数据回滚
     goto commit_abort;
   }
   for(pPg=pPager->pAll; pPg; pPg=pPg->pNextAll){
+    // 遍历整个链表
     if( pPg->dirty==0 ) continue;
+    // 获取数据头指针
     rc = sqliteOsSeek(&pPager->fd, (pPg->pgno-1)*SQLITE_PAGE_SIZE);
     if( rc!=SQLITE_OK ) goto commit_abort;
+    // 将数据写入数据库文件
     rc = sqliteOsWrite(&pPager->fd, PGHDR_TO_DATA(pPg), SQLITE_PAGE_SIZE);
     if( rc!=SQLITE_OK ) goto commit_abort;
   }
   if( !pPager->noSync && sqliteOsSync(&pPager->fd)!=SQLITE_OK ){
+    // 如果写入日志时不需要同步写入且在将数据库文件强制刷入磁盘失败
     goto commit_abort;
   }
   rc = pager_unwritelock(pPager);
