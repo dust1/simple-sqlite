@@ -127,12 +127,12 @@ struct Pager {
   u8 journalOpen;             /* True if journal file descriptors is valid| 如果journal文件已被打开(这里的打开表示Pager获取到了日志文件的读写锁)则为true  */
   u8 ckptOpen;                /* True if the checkpoint journal is open | 如果journal检查点功能开启，则为trur。这样看来journal和journal checkpoint是两个不同的功能? */
   u8 ckptInUse;               /* True we are in a checkpoint| 如果Page在检查点中，则为true。这意思是这个Page已经被写入到checkpoint中吗? */
-  u8 noSync;                  /* Do not sync the journal if true| 在将数据写入后同步刷新进磁盘，避免数据留在系统缓冲区 */
+  u8 noSync;                  /* Do not sync the journal if true| 写入数据库文件完成后是否立刻刷入磁盘 */
   u8 state;                   /* SQLITE_UNLOCK, _READLOCK or _WRITELOCK| 状态：未加锁、读锁、写锁 */
   u8 errMask;                 /* One of several kinds of errors| 错误信息? */
   u8 tempFile;                /* zFilename is a temporary file| 如果zFilename是一个临时文件，则为true */
   u8 readOnly;                /* True for a read-only database| 如果是只读的数据库，则为true */
-  u8 needSync;                /* True if an fsync() is needed on the journal | 在将Page写入磁盘前需要通过系统调用将日志文件强制刷入磁盘 */
+  u8 needSync;                /* True if an fsync() is needed on the journal | 写入数据库文件之前是否将日志刷入磁盘 */
   u8 dirtyFile;               /* True if database file has changed in any way| 如果这个数据库文件有被修改，则为true  */
   u8 *aInJournal;             /* One bit for each page in the database file| 每个数据库文件的Page中都有一位，啥意思？ */
   u8 *aInCkpt;                /* One bit for each page in the database | 每个数据库的Page中都有一位，啥意思？ */
@@ -1403,6 +1403,7 @@ int sqlitepager_commit(Pager *pPager){
     return rc;
   }
   if( pPager->needSync && sqliteOsSync(&pPager->jfd)!=SQLITE_OK ){
+    // 开始写入先必须将日志刷入磁盘
     // 如果Page需要同步刷入磁盘，且将日志文件缓存刷入磁盘失败后进行数据回滚
     goto commit_abort;
   }
@@ -1417,6 +1418,7 @@ int sqlitepager_commit(Pager *pPager){
     if( rc!=SQLITE_OK ) goto commit_abort;
   }
   if( !pPager->noSync && sqliteOsSync(&pPager->fd)!=SQLITE_OK ){
+    // 写入完成之后就立刻将修改刷入磁盘
     // 如果写入日志时不需要同步写入且在将数据库文件强制刷入磁盘失败
     goto commit_abort;
   }
@@ -1425,6 +1427,7 @@ int sqlitepager_commit(Pager *pPager){
   return rc;
 
   /* Jump here if anything goes wrong during the commit process.
+  如果写入出现错误，进入到这里进行数据的回滚
   */
 commit_abort:
   rc = sqlitepager_rollback(pPager);
