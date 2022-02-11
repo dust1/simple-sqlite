@@ -127,7 +127,7 @@ struct Pager {
   u8 journalOpen;             /* True if journal file descriptors is valid| 如果journal文件已被打开(这里的打开表示Pager获取到了日志文件的读写锁)则为true  */
   u8 ckptOpen;                /* True if the checkpoint journal is open | 如果journal检查点功能开启，则为trur。这样看来journal和journal checkpoint是两个不同的功能? */
   u8 ckptInUse;               /* True we are in a checkpoint| 如果Page在检查点中，则为true。这意思是这个Page已经被写入到checkpoint中吗? */
-  u8 noSync;                  /* Do not sync the journal if true| 写入journal文件的时候如果不同步写入，则为true */
+  u8 noSync;                  /* Do not sync the journal if true| 在将数据写入后同步刷新进磁盘，避免数据留在系统缓冲区 */
   u8 state;                   /* SQLITE_UNLOCK, _READLOCK or _WRITELOCK| 状态：未加锁、读锁、写锁 */
   u8 errMask;                 /* One of several kinds of errors| 错误信息? */
   u8 tempFile;                /* zFilename is a temporary file| 如果zFilename是一个临时文件，则为true */
