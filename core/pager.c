@@ -315,6 +315,7 @@ static int pager_playback_one_page(Pager *pPager, OsFile *jfd){
 /*
 ** Playback the journal and thus restore the database file to
 ** the state it was in before we started making changes.  
+** 播放日志，从而将数据库文件恢复到开始进行更改之前的状态
 **
 ** The journal file format is as follows:  There is an initial
 ** file-type string for sanity checking.  Then there is a single
@@ -1055,7 +1056,7 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
 ** not read the page from disk.  Return a pointer to the page,
 ** or 0 if the page is not in cache.
 ** 如果Page已经位于内存缓存中，不要从磁盘读取该Page.
-** 返回一个指向内存中Page的指针,如果Page不在内存中，则返回0
+** 返回一个指向内存中Page的数据块起始位置的指针,如果Page不在内存中，则返回0
 **
 ** See also sqlitepager_get().  The difference between this routine
 ** and sqlitepager_get() is that _get() will go to the disk and read
@@ -1224,16 +1225,19 @@ int sqlitepager_write(void *pData){
   int rc = SQLITE_OK;
 
   /* Check for errors
+  检查写入前是否发生异常
   */
   if( pPager->errMask ){ 
     return pager_errcode(pPager);
   }
   if( pPager->readOnly ){
+    // 如果是只读状态，则无法写入
     return SQLITE_PERM;
   }
 
   /* Mark the page as dirty.  If the page has already been written
   ** to the journal then we can return right away.
+  ** 将Page修改为脏页，如果页面已经写入日志，那么我们可以立即返回
   */
   pPg->dirty = 1;
   if( pPg->inJournal && (pPg->inCkpt || pPager->ckptInUse==0) ){
@@ -1244,9 +1248,11 @@ int sqlitepager_write(void *pData){
   /* If we get this far, it means that the page needs to be
   ** written to the transaction journal or the ckeckpoint journal
   ** or both.
+  ** 如果走到这一步，意味着Page需要写入事务日志或检查点日志或两者都要有
   **
   ** First check to see that the transaction journal exists and
   ** create it if it does not.
+  ** 首先检查事务日志是否存在，如果不存在则创建
   */
   assert( pPager->state!=SQLITE_UNLOCK );
   rc = sqlitepager_begin(pData);
@@ -1258,6 +1264,8 @@ int sqlitepager_write(void *pData){
   /* The transaction journal now exists and we have a write lock on the
   ** main database file.  Write the current page to the transaction 
   ** journal if it is not there already.
+  ** 事务日志现在存在并且我们对数据库文件拥有写锁.
+  ** 如果当前页面不存在，则将当前页面写入事务日志
   */
   if( !pPg->inJournal && (int)pPg->pgno <= pPager->origDbSize ){
     rc = sqliteOsWrite(&pPager->jfd, &pPg->pgno, sizeof(Pgno));
@@ -1441,6 +1449,8 @@ commit_abort:
 ** Rollback all changes.  The database falls back to read-only mode.
 ** All in-memory cache pages revert to their original data contents.
 ** The journal is deleted.
+** 回滚所有修改，并且将数据库的读写状态修改为只读。
+** 所有位于内存中的页面都恢复为原始内容，并删除日志文件
 **
 ** This routine cannot fail unless some other process is not following
 ** the correct locking protocol (SQLITE_PROTOCOL) or unless some other
@@ -1448,23 +1458,31 @@ commit_abort:
 ** unless a prior malloc() failed (SQLITE_NOMEM).  Appropriate error
 ** codes are returned for all these occasions.  Otherwise,
 ** SQLITE_OK is returned.
+** 该函数不会失败，除非其他进程未遵循正确的锁协议(SQLITE_PROTOCOL),或者
+** 其他进程正在将垃圾数据写入日志文件(SQLITE_CORRUPT),或者先前的malloc()
+** 执行失败。以上三者会返回错误代码，其他情况都会返回SQLITE_OK
 */
 int sqlitepager_rollback(Pager *pPager){
   int rc;
   if( pPager->errMask!=0 && pPager->errMask!=PAGER_ERR_FULL ){
+    // 有错误信息
     if( pPager->state>=SQLITE_WRITELOCK ){
+      // 只有获取到数据库写锁才可以回滚
       pager_playback(pPager);
     }
     return pager_errcode(pPager);
   }
   if( pPager->state!=SQLITE_WRITELOCK ){
+    // 只有获取写锁的Pager才能够回滚
     return SQLITE_OK;
   }
   rc = pager_playback(pPager);
   if( rc!=SQLITE_OK ){
+    // 回滚失败
     rc = SQLITE_CORRUPT;
     pPager->errMask |= PAGER_ERR_CORRUPT;
   }
+  // 为什么进行回滚之后需要将dbSize置为-1?
   pPager->dbSize = -1;
   return rc;
 }
