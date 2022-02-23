@@ -112,7 +112,7 @@ struct PgHdr {
 */
 struct Pager {
   char *zFilename;            /* Name of the database file| 数据库文件 */
-  char *zJournal;             /* Name of the journal file| Journal文件 */
+  char *zJournal;             /* Name of the journal file| Journal文件,跟事务相关 */
   OsFile fd, jfd;             /* File descriptors for database and journal| 数据库文件、journal文件描述符 */
   OsFile cpfd;                /* File descriptor for the checkpoint journal| journal检查点文件描述符 */
   int dbSize;                 /* Number of pages in the file| 数据库文件中Page的数量 */
@@ -1137,11 +1137,12 @@ int sqlitepager_unref(void *pData){
 /*
 ** Acquire a write-lock on the database.  The lock is removed when
 ** the any of the following happen:
+** 获得一个基于数据库的写锁,这个锁只有当以下情况的时候才会被释放
 **
-**   *  sqlitepager_commit() is called.
-**   *  sqlitepager_rollback() is called.
-**   *  sqlitepager_close() is called.
-**   *  sqlitepager_unref() is called to on every outstanding page.
+**   *  sqlitepager_commit() is called.事务提交
+**   *  sqlitepager_rollback() is called.事务回滚
+**   *  sqlitepager_close() is called. Page缓存被关闭
+**   *  sqlitepager_unref() is called to on every outstanding page. 释放程序内存?
 **
 ** The parameter to this routine is a pointer to any open page of the
 ** database file.  Nothing changes about the page - it is used merely
@@ -1151,42 +1152,59 @@ int sqlitepager_unref(void *pData){
 ** If the database is already write-locked, this routine is a no-op.
 */
 int sqlitepager_begin(void *pData){
+  // 根据数据指针获取拥有这个数据的Page指针
   PgHdr *pPg = DATA_TO_PGHDR(pData);
+  // 获取Pager指针
   Pager *pPager = pPg->pPager;
   int rc = SQLITE_OK;
   assert( pPg->nRef>0 );
   assert( pPager->state!=SQLITE_UNLOCK );
   if( pPager->state==SQLITE_READLOCK ){
+    // 如果page拥有读锁,则尝试升格为写锁
     assert( pPager->aInJournal==0 );
     rc = sqliteOsWriteLock(&pPager->fd);
     if( rc!=SQLITE_OK ){
       return rc;
     }
+    // 给Pager的AInJournal开辟一块内存空间,空间大小跟当前数据库中Page数量相关
     pPager->aInJournal  = malloc(  pPager->dbSize/8 + 1 );
     memset(pPager->aInJournal , 0,  pPager->dbSize/8 + 1);
 
     if( pPager->aInJournal==0 ){
+      // 开辟内存失败
       sqliteOsReadLock(&pPager->fd);
       return SQLITE_NOMEM;
     }
+    // 为此进程打开一个独占的可供读写的文件
     rc = sqliteOsOpenExclusive(pPager->zJournal, &pPager->jfd, 0);
     if( rc!=SQLITE_OK ){
+      // 文件打开失败，释放aInJournal的内存空间，并释放写锁
       sqliteFree(pPager->aInJournal);
       pPager->aInJournal = 0;
       sqliteOsReadLock(&pPager->fd);
       return SQLITE_CANTOPEN;
     }
+
+    /**
+     * 这里打开的文件是zJournal,开启事务期间对数据库的写入之前不会将日志刷入磁盘,
+     * Page不是脏页,状态修改为写锁
+     */
     pPager->journalOpen = 1;
     pPager->needSync = 0;
     pPager->dirtyFile = 0;
     pPager->state = SQLITE_WRITELOCK;
+    // 更新磁盘上所有Page的数量
     sqlitepager_pagecount(pPager);
+    // 将当前磁盘上Page的数量额外记录
     pPager->origDbSize = pPager->dbSize;
+    // 写入日志文件的magic
     rc = sqliteOsWrite(&pPager->jfd, aJournalMagic, sizeof(aJournalMagic));
     if( rc==SQLITE_OK ){
+      // 将数据库中Page数量保存在日志文件中
       rc = sqliteOsWrite(&pPager->jfd, &pPager->dbSize, sizeof(Pgno));
     }
     if( rc!=SQLITE_OK ){
+      // 写入失败,释放锁
       rc = pager_unwritelock(pPager);
       if( rc==SQLITE_OK ) rc = SQLITE_FULL;
     }
