@@ -1148,6 +1148,8 @@ int sqlitepager_unref(void *pData){
 ** database file.  Nothing changes about the page - it is used merely
 ** to acquire a pointer to the Pager structure and as proof that there
 ** is already a read-lock on the database.
+** 在开始事务前必须要获取到数据库的读锁
+** 注意:这个读锁是数据库级别的读锁,一个数据库允许多个读锁,但只要还有其他读锁存在就无法再分配出写锁
 **
 ** If the database is already write-locked, this routine is a no-op.
 */
@@ -1160,6 +1162,7 @@ int sqlitepager_begin(void *pData){
   assert( pPg->nRef>0 );
   assert( pPager->state!=SQLITE_UNLOCK );
   if( pPager->state==SQLITE_READLOCK ){
+    // 必须要得到改Page的读锁
     // 如果page拥有读锁,则尝试升格为写锁
     assert( pPager->aInJournal==0 );
     rc = sqliteOsWriteLock(&pPager->fd);
@@ -1198,6 +1201,7 @@ int sqlitepager_begin(void *pData){
     // 将当前磁盘上Page的数量额外记录
     pPager->origDbSize = pPager->dbSize;
     // 写入日志文件的magic
+    // 此处创建回滚用的备份文件
     rc = sqliteOsWrite(&pPager->jfd, aJournalMagic, sizeof(aJournalMagic));
     if( rc==SQLITE_OK ){
       // 将数据库中Page数量保存在日志文件中
