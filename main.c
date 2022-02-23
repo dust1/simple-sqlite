@@ -1,4 +1,4 @@
-
+#include <stdio.h>
 #include "core/os.h"
 #include "test/vfstest.h"
 #include "test/pagetest.h"

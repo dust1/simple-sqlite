@@ -1286,16 +1286,24 @@ int sqlitepager_write(void *pData){
   ** 如果当前页面不存在，则将当前页面写入事务日志
   */
   if( !pPg->inJournal && (int)pPg->pgno <= pPager->origDbSize ){
+    // 事务开启后在事务文件中记录下当前page的id
     rc = sqliteOsWrite(&pPager->jfd, &pPg->pgno, sizeof(Pgno));
     if( rc==SQLITE_OK ){
+      // pageId写入到事务文件中后，将Page本次要写入的数据内容写入到journal文件中
       rc = sqliteOsWrite(&pPager->jfd, pData, SQLITE_PAGE_SIZE);
     }
     if( rc!=SQLITE_OK ){
+      // 内容写入失败，则回滚
       sqlitepager_rollback(pPager);
       pPager->errMask |= PAGER_ERR_FULL;
       return rc;
     }
     assert( pPager->aInJournal!=0 );
+
+    /**
+     * 1 << (pPg->pgno&7): 截取这个Page的id最低3位,将1往左移动这个位
+     * aInJournal[pPg->pgno/8]: ?
+     */
     pPager->aInJournal[pPg->pgno/8] |= 1<<(pPg->pgno&7);
     pPager->needSync = !pPager->noSync;
     pPg->inJournal = 1;
