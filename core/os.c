@@ -556,6 +556,7 @@ int sqliteOsSync(OsFile *id){
 
 /*
 ** Truncate an open file to a specified size
+** 将打开的文件阶段为指定大小
 */
 int sqliteOsTruncate(OsFile *id, int nByte){
     SimulateIOError(SQLITE_IOERR);

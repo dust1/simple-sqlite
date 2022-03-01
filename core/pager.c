@@ -285,28 +285,34 @@ static int pager_unwritelock(Pager *pPager){
 /*
 ** Read a single page from the journal file opened on file descriptor
 ** jfd.  Playback this one page.
+** 从打开的日志文件中读取一页数据,回放这页数据
 */
 static int pager_playback_one_page(Pager *pPager, OsFile *jfd){
   int rc;
   PgHdr *pPg;              /* An existing page in the cache */
   PageRecord pgRec;
 
+  // 从jfd中读取一条Page记录
   rc = sqliteOsRead(jfd, &pgRec, sizeof(pgRec));
   if( rc!=SQLITE_OK ) return rc;
 
   /* Sanity checking on the page */
+  /* 页面的健全性检查 */
   if( pgRec.pgno>pPager->dbSize || pgRec.pgno==0 ) return SQLITE_CORRUPT;
 
   /* Playback the page.  Update the in-memory copy of the page
   ** at the same time, if there is one.
+  ** 回放页面，如果页面有内存副本，则同时更新
   */
   pPg = pager_lookup(pPager, pgRec.pgno);
   if( pPg ){
+    // 内存中有副本，则更新
     memcpy(PGHDR_TO_DATA(pPg), pgRec.aData, SQLITE_PAGE_SIZE);
     memset(PGHDR_TO_EXTRA(pPg), 0, pPager->nExtra);
   }
   rc = sqliteOsSeek(&pPager->fd, (pgRec.pgno-1)*SQLITE_PAGE_SIZE);
   if( rc==SQLITE_OK ){
+    // 覆盖Page
     rc = sqliteOsWrite(&pPager->fd, pgRec.aData, SQLITE_PAGE_SIZE);
   }
   return rc;
@@ -324,6 +330,11 @@ static int pager_playback_one_page(Pager *pPager, OsFile *jfd){
 ** Next come zero or more page records where each page record
 ** consists of a Pgno and SQLITE_PAGE_SIZE bytes of data.  See
 ** the PageRecord structure for details.
+** 日志文件格式如下：
+**    首先是一个用于文件完整性检查的字符串(maginc number),
+**    然后是一个无符号整数(用Pgno表示)用于记录在修改前数据库文件中page的数量,数据库被阶段到这个大小
+**    然后是0或多个页面记录，其中每个页面记录由Pgno和SQLITE_PAGE_SIZE字节的数据组成
+**    可以查看PageRecord结构查看记录详情
 **
 ** If the file opened as the journal file is not a well-formed
 ** journal file (as determined by looking at the magic number
@@ -332,16 +343,20 @@ static int pager_playback_one_page(Pager *pPager, OsFile *jfd){
 ** likely be corrupted, so the PAGER_ERR_CORRUPT bit is set in
 ** pPager->errMask and SQLITE_CORRUPT is returned.  If it all
 ** works, then this routine returns SQLITE_OK.
+** 如果打开的日志文件格式不正确，如开头不是magic number，则返回SQLITE_PROTOCOL
+** 如果在播放日志的时候出现其他错误，则数据库可能已经损坏,所以会在pPager->errMask中设置为PAGER_ERR_CORRUPT比特标记
+** 一切正常则返回OK
 */
 static int pager_playback(Pager *pPager){
-  int nRec;                /* Number of Records */
-  int i;                   /* Loop counter */
-  Pgno mxPg = 0;           /* Size of the original file in pages */
+  int nRec;                /* Number of Records| 记录条数 */
+  int i;                   /* Loop counter| 循环计数器 */
+  Pgno mxPg = 0;           /* Size of the original file in pages| 原始文件的Page大小 */
   unsigned char aMagic[sizeof(aJournalMagic)];
   int rc;
 
   /* Figure out how many records are in the journal.  Abort early if
   ** the journal is empty.
+  ** 找出日志中有多少条记录
   */
   assert( pPager->journalOpen );
   sqliteOsSeek(&pPager->jfd, 0);
@@ -349,6 +364,7 @@ static int pager_playback(Pager *pPager){
   if( rc!=SQLITE_OK ){
     goto end_playback;
   }
+  // 这里的计算过程表示在写入日志的时候确保了记录不会写入一半
   nRec = (nRec - (sizeof(aMagic)+sizeof(Pgno))) / sizeof(PageRecord);
   if( nRec<=0 ){
     goto end_playback;
@@ -356,16 +372,20 @@ static int pager_playback(Pager *pPager){
 
   /* Read the beginning of the journal and truncate the
   ** database file back to its original size.
+  ** 读取日志开头并将数据库文件截断回其原始大小
   */
   rc = sqliteOsRead(&pPager->jfd, aMagic, sizeof(aMagic));
   if( rc!=SQLITE_OK || memcmp(aMagic,aJournalMagic,sizeof(aMagic))!=0 ){
+    // 文件格式校验，检查magic number
     rc = SQLITE_PROTOCOL;
     goto end_playback;
   }
+  // 读取修改前的数据库Page数量
   rc = sqliteOsRead(&pPager->jfd, &mxPg, sizeof(mxPg));
   if( rc!=SQLITE_OK ){
     goto end_playback;
   }
+  // 将数据库文件截断为修改前的大小
   rc = sqliteOsTruncate(&pPager->fd, mxPg*SQLITE_PAGE_SIZE);
   if( rc!=SQLITE_OK ){
     goto end_playback;
@@ -373,6 +393,7 @@ static int pager_playback(Pager *pPager){
   pPager->dbSize = mxPg;
   
   /* Copy original pages out of the journal and back into the database file.
+  * 将原始页面从日志中复制出来并返回到数据库文件中
   */
   for(i=nRec-1; i>=0; i--){
     rc = pager_playback_one_page(pPager, &pPager->jfd);
