@@ -748,7 +748,7 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
   if( pPager->errMask & ~(PAGER_ERR_FULL) ){
     return pager_errcode(pPager);
   }
-
+ 
   /* If this is the first page accessed, then get a read lock
   ** on the database file.
   */
