@@ -561,7 +561,7 @@ int sqliteOsSync(OsFile *id){
 int sqliteOsTruncate(OsFile *id, int nByte){
     SimulateIOError(SQLITE_IOERR);
 #if OS_UNIX
-    return ftruncate(id->fd, nByte)==0 ? SQLITE_OK : SQLITE_IOERR;
+    return ftruncate(id->fd, nByte)==-1 ? SQLITE_OK : SQLITE_IOERR;
 #endif
 #if OS_WIN
     SetFilePointer(id->h, nByte, 0, FILE_BEGIN);
