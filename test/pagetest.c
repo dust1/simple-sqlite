@@ -33,8 +33,10 @@ void testPager(char **fileLocation) {
 
     /** Step 2 : Write data into three different pages and save it on the file **/
     // Look for the first page
+    // 尝试从内存中获取page number为1的page
     pPage = sqlitepager_lookup(pPager, 1);
     // Start write page
+    // 准备对page进行写入
     rc = sqlitepager_write(pPage);
     // Add string into the page
     strncpy((char*)pPage, "Page One", SQLITE_PAGE_SIZE-1);
@@ -44,11 +46,11 @@ void testPager(char **fileLocation) {
     pPage = sqlitepager_lookup(pPager, 2);
     rc = sqlitepager_write(pPage);
     strncpy((char*)pPage, "Page Two", SQLITE_PAGE_SIZE-1);
-    rc = sqlitepager_commit(pPager);
 
     pPage = sqlitepager_lookup(pPager, 3);
     rc = sqlitepager_write(pPage);
     strncpy((char*)pPage, "Page Three", SQLITE_PAGE_SIZE-1);
+
     rc = sqlitepager_commit(pPager);
 
     /** Step 3 : Read pages to make sure changes commited **/

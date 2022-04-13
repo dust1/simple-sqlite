@@ -295,6 +295,9 @@ int sqliteOsOpenReadWrite(
 ** a potential security problem, we do not allow the file to have
 ** previously existed.  Nor do we allow the file to be a symbolic
 ** link.
+** 尝试为次进程打开一个新文件以进行独占访问。
+** 改文件将被打开以供读取和写入。为避免潜在的安全文件，我们不允许改文件以前存在，
+** 也不允许改文件成为链接符号
 **
 ** If delFlag is true, then make arrangements to automatically delete
 ** the file when it is closed.
@@ -537,11 +540,13 @@ int sqliteOsSeek(OsFile *id, int offset){
 
 /*
 ** Make sure all writes to a particular file are committed to disk.
+** 确保对文件的所有写入都提交到磁盘
 */
 int sqliteOsSync(OsFile *id){
     SimulateIOError(SQLITE_IOERR);
     TRACE1("SYNC\n");
 #if OS_UNIX
+    // 将位于系统缓冲区的某个文件缓存刷入磁盘
     return fsync(id->fd)==0 ? SQLITE_OK : SQLITE_IOERR;
 #endif
 #if OS_WIN
@@ -551,6 +556,7 @@ int sqliteOsSync(OsFile *id){
 
 /*
 ** Truncate an open file to a specified size
+** 将打开的文件阶段为指定大小
 */
 int sqliteOsTruncate(OsFile *id, int nByte){
     SimulateIOError(SQLITE_IOERR);
