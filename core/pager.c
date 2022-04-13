@@ -926,7 +926,7 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage)
   {
     return pager_errcode(pPager);
   }
-
+ 
   /* If this is the first page accessed, then get a read lock
   ** on the database file.
   ** 如果pager的引用数为0
