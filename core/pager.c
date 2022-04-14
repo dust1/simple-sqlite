@@ -1442,7 +1442,9 @@ int sqlitepager_begin(void *pData)
 */
 int sqlitepager_write(void *pData)
 {
+  // 从data指针获取页面指针
   PgHdr *pPg = DATA_TO_PGHDR(pData);
+  // 从页面指针获取页面管理指针
   Pager *pPager = pPg->pPager;
   int rc = SQLITE_OK;
 
@@ -1464,8 +1466,10 @@ int sqlitepager_write(void *pData)
   ** 将Page修改为脏页，如果页面已经写入日志，那么我们可以立即返回
   */
   pPg->dirty = 1;
+  // 该Page已被写入到日志文件中，且该Page已被写入到checkpoint文件中或者尚未有其他线程在写入检查点文件
   if (pPg->inJournal && (pPg->inCkpt || pPager->ckptInUse == 0))
   {
+    // 该数据库文件已被修改，可以直接被写入
     pPager->dirtyFile = 1;
     return SQLITE_OK;
   }
