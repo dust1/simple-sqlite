@@ -315,7 +315,7 @@ struct MemPage {
 ** Everything we need to know about an open database
 */
 struct Btree {
-  Pager *pPager;        /* The page cache */
+  Pager *pPager;        /* The page cache | 页面缓存 */
   BtCursor *pCursor;    /* A list of all open cursors */
   PageOne *page1;       /* First page of the database */
   u8 inTrans;           /* True if a transaction is in progress */
