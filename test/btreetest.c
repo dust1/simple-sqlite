@@ -109,5 +109,5 @@ void testBtree(char **fileLocation) {
     rc = sqliteBtreeCloseCursor(pCur);
     rc = sqliteBtreeCommit(pBt);
 
-    //sqliteOsDelete(*fileLocation);
+    // sqliteOsDelete(*fileLocation);
 }
