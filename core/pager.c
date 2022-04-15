@@ -134,8 +134,8 @@ struct Pager {
   u8 readOnly;                /* True for a read-only database| 如果是只读的数据库，则为true */
   u8 needSync;                /* True if an fsync() is needed on the journal | 写入数据库文件之前是否将日志刷入磁盘 */
   u8 dirtyFile;               /* True if database file has changed in any way| 如果这个数据库文件有被修改，则为true  */
-  u8 *aInJournal;             /* One bit for each page in the database file| 每个数据库文件的Page中都有一位，啥意思？ */
-  u8 *aInCkpt;                /* One bit for each page in the database | 每个数据库的Page中都有一位，啥意思？ */
+  u8 *aInJournal;             /* One bit for each page in the database file| 数据库中每一页对应一位，表示对应pgno的page是否已被写入到日志文件中 */
+  u8 *aInCkpt;                /* One bit for each page in the database | 数据库中每一页对应一位，表示对应pgno的page是否写入checkpoint文件 */
   PgHdr *pFirst, *pLast;      /* List of free pages | 没有被使用的Page组成的链表的首尾节点 */
   PgHdr *pAll;                /* List of all pages | 总的Page链表的头节点 */
   PgHdr *aHash[N_PG_HASH];    /* Hash table to map page number of PgHdr | 根据PageId查询PgHdr结构的哈希表, 这张表看起来值保存空闲Page */
@@ -1011,16 +1011,24 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage){
       // LRU计数器递增
       pPager->nOvfl++;
     }
+
+    // 给这个空闲页面赋予pgno
     pPg->pgno = pgno;
-    // ?
+    // 如果pager中有某一页已被写入到日志中，并且该page的编号小于数据库page的数量
     if( pPager->aInJournal && (int)pgno<=pPager->origDbSize ){
+      // 找到这个pgno对应的标志位，并赋值给Page
       pPg->inJournal = (pPager->aInJournal[pgno/8] & (1<<(pgno&7)))!=0;
     }else{
+      // 否则这个Page的标志位为0表示未存入journal文件
       pPg->inJournal = 0;
     }
+
+    // 同上，检查该pgno是否已被写入checkpoint文件
     if( pPager->aInCkpt && (int)pgno<=pPager->ckptSize ){
+      // 如果有可能，则将其从位图中提取出来
       pPg->inCkpt = (pPager->aInCkpt[pgno/8] & (1<<(pgno&7)))!=0;
     }else{
+      // 否则该page属于新建page，默认为未写入
       pPg->inCkpt = 0;
     }
 
