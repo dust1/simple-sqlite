@@ -34,6 +34,7 @@ void testPager(char **fileLocation)
     /** Step 2 : Write data into three different pages and save it on the file **/
     // Look for the first page
     // 尝试从内存中获取page number为1的page
+    // 返回的是对应页面的数据指针
     pPage = sqlitepager_lookup(pPager, 1);
     // Start write page
     // 准备对page进行写入
