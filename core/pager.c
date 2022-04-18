@@ -277,6 +277,7 @@ static void pager_reset(Pager *pPager)
 ** a write lock on the database.  This routine releases the database
 ** write lock and acquires a read lock in its place.  The journal file
 ** is deleted and closed.
+** 当page开启事务后并没有对其有任何写入操作，则释放写锁并删除日志文件并关闭其句柄
 */
 static int pager_unwritelock(Pager *pPager)
 {
@@ -284,20 +285,33 @@ static int pager_unwritelock(Pager *pPager)
   PgHdr *pPg;
   if (pPager->state < SQLITE_WRITELOCK)
     return SQLITE_OK;
+  // 提交检查点文件
   sqlitepager_ckpt_commit(pPager);
 
   if (pPager->ckptOpen)
   {
+    // 如果检查点开着，则关闭检查点文件
     sqliteOsClose(&pPager->cpfd);
     pPager->ckptOpen = 0;
   }
+
+  // 释放日志文件
   sqliteOsClose(&pPager->jfd);
   pPager->journalOpen = 0;
+
+  // 删除日志文件
   sqliteOsDelete(pPager->zJournal);
+
+  // 将写锁降级为读锁
   rc = sqliteOsReadLock(&pPager->fd);
+
   assert(rc == SQLITE_OK);
+
+  // 在日志位图中将其释放
   sqliteFree(pPager->aInJournal);
   pPager->aInJournal = 0;
+
+  // 所有的page都设置为未操作状态
   for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
   {
     pPg->inJournal = 0;
@@ -1658,7 +1672,7 @@ int sqlitepager_commit(Pager *pPager)
 
   if (pPager->errMask == PAGER_ERR_FULL)
   {
-    // 写入时发生异常，回滚数据
+    // page爆满
     rc = sqlitepager_rollback(pPager);
     if (rc == SQLITE_OK)
       rc = SQLITE_FULL;
@@ -1670,6 +1684,7 @@ int sqlitepager_commit(Pager *pPager)
     rc = pager_errcode(pPager);
     return rc;
   }
+
   if (pPager->state != SQLITE_WRITELOCK)
   {
     return SQLITE_ERROR;
@@ -1679,12 +1694,13 @@ int sqlitepager_commit(Pager *pPager)
   {
     /* Exit early (without doing the time-consuming sqliteOsSync() calls)
     ** if there have been no changes to the database file. */
-    // 如果文件没有被修改，则不需要进行写入
+    // 整个pager中没有任何一个page被修改
     // 释放数据库文件的写锁并获取读锁，同时删除日志文件
     rc = pager_unwritelock(pPager);
     pPager->dbSize = -1;
     return rc;
   }
+
   if (pPager->needSync && sqliteOsSync(&pPager->jfd) != SQLITE_OK)
   {
     // 开始写入先必须将日志刷入磁盘
@@ -1846,6 +1862,7 @@ ckpt_begin_failed:
 
 /*
 ** Commit a checkpoint.
+** 提交检查点
 */
 int sqlitepager_ckpt_commit(Pager *pPager)
 {
