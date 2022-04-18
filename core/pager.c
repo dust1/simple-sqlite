@@ -1196,7 +1196,8 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage)
       sqlitepager_pagecount(pPager);
     if (pPager->dbSize < (int)pgno)
     {
-      // 数据库文件page数量小于page number, 这是一个新的page
+      // 这个page的pgno是否已经位于数据库文件中
+      // 依据就是pgno大小是否小于数据库page数量，可知pgno是递增的
       memset(PGHDR_TO_DATA(pPg), 0, SQLITE_PAGE_SIZE);
     }
     else
@@ -1350,6 +1351,7 @@ int sqlitepager_begin(void *pData)
   PgHdr *pPg = DATA_TO_PGHDR(pData);
   // 获取Pager指针
   Pager *pPager = pPg->pPager;
+
   int rc = SQLITE_OK;
   assert(pPg->nRef > 0);
   assert(pPager->state != SQLITE_UNLOCK);
@@ -1363,8 +1365,10 @@ int sqlitepager_begin(void *pData)
     {
       return rc;
     }
-    // 给Pager的AInJournal开辟一块内存空间,空间大小跟当前数据库中Page数量相关
+
+    // 在Pager创建位图，每一位都表示对应pgno的Page是否位于日志文件中
     pPager->aInJournal = malloc(pPager->dbSize / 8 + 1);
+    // 默认为0
     memset(pPager->aInJournal, 0, pPager->dbSize / 8 + 1);
 
     if (pPager->aInJournal == 0)
@@ -1373,7 +1377,9 @@ int sqlitepager_begin(void *pData)
       sqliteOsReadLock(&pPager->fd);
       return SQLITE_NOMEM;
     }
+
     // 为此进程打开一个独占的可供读写的文件
+    // 获取jfd文件的访问权限
     rc = sqliteOsOpenExclusive(pPager->zJournal, &pPager->jfd, 0);
     if (rc != SQLITE_OK)
     {
@@ -1393,15 +1399,16 @@ int sqlitepager_begin(void *pData)
     pPager->dirtyFile = 0;
     pPager->state = SQLITE_WRITELOCK;
     // 更新磁盘上所有Page的数量
+    // 更新pager.dbSize
     sqlitepager_pagecount(pPager);
-    // 将当前磁盘上Page的数量额外记录
+    // 将当前磁盘上的Page数量就是开启事务之前的数量
     pPager->origDbSize = pPager->dbSize;
-    // 写入日志文件的magic
-    // 此处创建回滚用的备份文件
+
+    // 写入日志文件的校验头
     rc = sqliteOsWrite(&pPager->jfd, aJournalMagic, sizeof(aJournalMagic));
     if (rc == SQLITE_OK)
     {
-      // 将数据库中Page数量保存在日志文件中
+      // 将开始事务前的page数量保存在日志文件中
       rc = sqliteOsWrite(&pPager->jfd, &pPager->dbSize, sizeof(Pgno));
     }
     if (rc != SQLITE_OK)
@@ -1469,6 +1476,7 @@ int sqlitepager_write(void *pData)
   // 该Page已被写入到日志文件中，且该Page已被写入到checkpoint文件中或者尚未有其他线程在写入检查点文件
   if (pPg->inJournal && (pPg->inCkpt || pPager->ckptInUse == 0))
   {
+    // 也意味着该Page的事务已经开始
     // 该数据库文件已被修改，可以直接被写入
     pPager->dirtyFile = 1;
     return SQLITE_OK;
@@ -1484,6 +1492,7 @@ int sqlitepager_write(void *pData)
   ** 首先检查事务日志是否存在，如果不存在则创建
   */
   assert(pPager->state != SQLITE_UNLOCK);
+  // 开启事务，将文件校验数据、开始事务前的page数量写入日志文件
   rc = sqlitepager_begin(pData);
   pPager->dirtyFile = 1;
   if (rc != SQLITE_OK)
@@ -1497,13 +1506,15 @@ int sqlitepager_write(void *pData)
   ** 事务日志现在存在并且我们对数据库文件拥有写锁.
   ** 如果当前页面不存在，则将当前页面写入事务日志
   */
+  // page未写入到日志且pgno小于等于当前数据库page数量,即page数据已存在fd文件中
   if (!pPg->inJournal && (int)pPg->pgno <= pPager->origDbSize)
   {
     // 事务开启后在事务文件中记录下当前page的id
     rc = sqliteOsWrite(&pPager->jfd, &pPg->pgno, sizeof(Pgno));
     if (rc == SQLITE_OK)
     {
-      // pageId写入到事务文件中后，将Page本次要写入的数据内容写入到journal文件中
+      // 将执行写入之前的Page信息写到日志文件中
+      // 好像是REDO文件
       rc = sqliteOsWrite(&pPager->jfd, pData, SQLITE_PAGE_SIZE);
     }
     if (rc != SQLITE_OK)
@@ -1515,15 +1526,15 @@ int sqlitepager_write(void *pData)
     }
     assert(pPager->aInJournal != 0);
 
-    /**
-     * 1 << (pPg->pgno&7): 截取这个Page的id最低3位,将1往左移动这个位
-     * aInJournal[pPg->pgno/8]: ?
-     */
+    // 将这个pgno对应的位数改为1,表示该page开启事务前的data已被写入到日志文件中
     pPager->aInJournal[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
+    // 需要执行sync()?
     pPager->needSync = !pPager->noSync;
+    // 该page已被写入到日志
     pPg->inJournal = 1;
-    if (pPager->ckptInUse)
+    if (pPager->ckptInUse)  // 是否使用检查点
     {
+      // 检查点标志设置为1
       pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
       pPg->inCkpt = 1;
     }
@@ -1531,13 +1542,16 @@ int sqlitepager_write(void *pData)
 
   /* If the checkpoint journal is open and the page is not in it,
   ** then write the current page to the checkpoint journal.
+  ** 如果pager使用检查点，且page不在检查点文件中，且page自身位于fd文件中
   */
   if (pPager->ckptInUse && !pPg->inCkpt && (int)pPg->pgno <= pPager->ckptSize)
   {
     assert(pPg->inJournal || (int)pPg->pgno > pPager->origDbSize);
+    // 将当前pgno写入检查点文件
     rc = sqliteOsWrite(&pPager->cpfd, &pPg->pgno, sizeof(Pgno));
     if (rc == SQLITE_OK)
     {
+      // 将当前page的data写入到检查点文件
       rc = sqliteOsWrite(&pPager->cpfd, pData, SQLITE_PAGE_SIZE);
     }
     if (rc != SQLITE_OK)
@@ -1555,6 +1569,7 @@ int sqlitepager_write(void *pData)
    */
   if (pPager->dbSize < (int)pPg->pgno)
   {
+    // 如果pager中保存的page数量小于当前pgno，则将其修改为pgno
     pPager->dbSize = pPg->pgno;
   }
   return rc;

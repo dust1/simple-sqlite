@@ -21,7 +21,7 @@ int main() {
     /* Tests for Pager functionality */
     testPager(&fileLocation);
 
-    myTestPager();
+    // myTestPager();
 
     /* Tests for Btree functionality */
     testBtree(&fileLocation);
