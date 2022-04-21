@@ -738,12 +738,14 @@ int sqlitepager_pagecount(Pager *pPager)
 
 /*
 ** Shutdown the page cache.  Free all memory and close all files.
+** 关闭Page Cache，释放所有内存并关闭所有文件
 **
 ** If a transaction was in progress when this routine is called, that
 ** transaction is rolled back.  All outstanding pages are invalidated
 ** and their memory is freed.  Any attempt to use a page associated
 ** with this page cache after this function returns will likely
 ** result in a coredump.
+** 如果一个事务正在运行时调用该函数，那么回滚该事务.
 */
 int sqlitepager_close(Pager *pPager)
 {
