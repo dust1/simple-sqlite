@@ -135,21 +135,23 @@ static const char zMagicHeader[] =
 ** 记住，pgno起始编号为1. 不存在pgno为0的Page
 */
 struct PageOne {
-  char zMagic[MAGIC_SIZE]; /* String that identifies the file as a database */
-  int iMagic;              /* Integer to verify correct byte order */
-  Pgno freeList;           /* First free page in a list of all free pages */
-  int nFree;               /* Number of pages on the free list */
-  int aMeta[SQLITE_N_BTREE_META-1];  /* User defined integers */
+  char zMagic[MAGIC_SIZE]; /* String that identifies the file as a database | 该数据的文件校验头 */
+  int iMagic;              /* Integer to verify correct byte order | 用于验证正确字节顺序的整数 */
+  Pgno freeList;           /* First free page in a list of all free pages | 所有free页面组成链表的头页面编号 */
+  int nFree;               /* Number of pages on the free list | 所有free页面的数量 */
+  int aMeta[SQLITE_N_BTREE_META-1];  /* User defined integers | 其他元数据信息 */
 };
 
 /*
 ** Each database page has a header that is an instance of this
 ** structure.
+** 每个数据库Page都有一个标头，他是此结构的实例
 **
 ** PageHdr.firstFree is 0 if there is no free space on this page.
 ** Otherwise, PageHdr.firstFree is the index in MemPage.u.aDisk[] of a 
 ** FreeBlk structure that describes the first block of free space.  
 ** All free space is defined by a linked list of FreeBlk structures.
+** 
 **
 ** Data is stored in a linked list of Cell structures.  PageHdr.firstCell
 ** is the index into MemPage.u.aDisk[] of the first cell on the page.  The
