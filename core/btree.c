@@ -122,13 +122,17 @@ static const char zMagicHeader[] =
 ** a pointer to the first free page of the file.  Page 2 contains the
 ** root of the principle BTree.  The file might contain other BTrees
 ** rooted on pages above 2.
+** 数据库的第一个Page，包含头文件校验、空闲Page链表的指针、和一些元数据.
+** 第二页则包含BTree的root节点，改文件可能包含两个以上Page为root的其他BTree
 **
 ** The first page also contains SQLITE_N_BTREE_META integers that
 ** can be used by higher-level routines.
+** 第一个Page还包含SQLITE_N_BTREE_META整数，可供更高级别的例程使用
 **
 ** Remember that pages are numbered beginning with 1.  (See pager.c
 ** for additional information.)  Page 0 does not exist and a page
 ** number of 0 is used to mean "no such page".
+** 记住，pgno起始编号为1. 不存在pgno为0的Page
 */
 struct PageOne {
   char zMagic[MAGIC_SIZE]; /* String that identifies the file as a database */
