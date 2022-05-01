@@ -73,18 +73,18 @@
 typedef struct PgHdr PgHdr;
 struct PgHdr
 {
-  Pager *pPager;                /* The pager to which this page belongs|这个Page对外能看到的结构,这看起来像是页面管理器？ */
-  Pgno pgno;                    /* The page number for this page */
-  PgHdr *pNextHash, *pPrevHash; /* Hash collision chain for PgHdr.pgno| PageId的哈希冲突链,也就是说,如果两个Page的pageId的哈希值相同，则这些产生哈希碰撞的Page也组成一段双向链表 */
-  int nRef;                     /* Number of users of this page| 该Page的引用数 */
-  PgHdr *pNextFree, *pPrevFree; /* Freelist of pages where nRef==0| 引用数为0的Page组成的双向链表 */
-  PgHdr *pNextAll, *pPrevAll;   /* A list of all pages|有关所有Page的集合，这里通过保存Page链表的上下两个指针来表示，通过这两个指针可以以该Page为起始向两头遍历Page链表 */
-  char inJournal;               /* TRUE if has been written to journal|该Page有被写入到journal中 */
-  char inCkpt;                  /* TRUE if written to the checkpoint journal|该Page有被写入到检查点日志中 */
-  char dirty;                   /* TRUE if we need to write back changes|该Page有被写入数据 */
-  /* SQLITE_PAGE_SIZE bytes of page data follow this header */
-  /* Pager.nExtra bytes of local data follow the page data */
-  /* 额外数据跟随在这之后,也就是说，一个PgHdr的连续内存空间大小除了SQLLITE_PAGE_SIZE之外还有一段"隐藏"的nExtra数据，这部分数据跟随在PgHdr对象之后,通过下面的PGHDR_TO_EXTRA宏来获取, */
+	Pager *pPager;				  /* The pager to which this page belongs|这个Page对外能看到的结构,这看起来像是页面管理器？ */
+	Pgno pgno;					  /* The page number for this page */
+	PgHdr *pNextHash, *pPrevHash; /* Hash collision chain for PgHdr.pgno| PageId的哈希冲突链,也就是说,如果两个Page的pageId的哈希值相同，则这些产生哈希碰撞的Page也组成一段双向链表 */
+	int nRef;					  /* Number of users of this page| 该Page的引用数 */
+	PgHdr *pNextFree, *pPrevFree; /* Freelist of pages where nRef==0| 引用数为0的Page组成的双向链表 */
+	PgHdr *pNextAll, *pPrevAll;	  /* A list of all pages|有关所有Page的集合，这里通过保存Page链表的上下两个指针来表示，通过这两个指针可以以该Page为起始向两头遍历Page链表 */
+	char inJournal;				  /* TRUE if has been written to journal|该Page有被写入到journal中 */
+	char inCkpt;				  /* TRUE if written to the checkpoint journal|该Page有被写入到检查点日志中 */
+	char dirty;					  /* TRUE if we need to write back changes|该Page有被写入数据 */
+								  /* SQLITE_PAGE_SIZE bytes of page data follow this header */
+								  /* Pager.nExtra bytes of local data follow the page data */
+								  /* 额外数据跟随在这之后,也就是说，一个PgHdr的连续内存空间大小除了SQLLITE_PAGE_SIZE之外还有一段"隐藏"的nExtra数据，这部分数据跟随在PgHdr对象之后,通过下面的PGHDR_TO_EXTRA宏来获取, */
 };
 
 /*
@@ -110,45 +110,46 @@ struct PgHdr
 ** 提供给使用者的结构类型，创建了Page之后使用者对Page进行操作需要通过该结构，而不是PgHdr结构体
 ** 页面管理对象
 */
-struct Pager {
-  char *zFilename;            /* Name of the database file| 数据库文件 */
-  char *zJournal;             /* Name of the journal file| Journal文件,跟事务相关 */
-  OsFile fd, jfd;             /* File descriptors for database and journal| 数据库文件、journal文件描述符 */
-  OsFile cpfd;                /* File descriptor for the checkpoint journal| journal检查点文件描述符 */
-  int dbSize;                 /* Number of pages in the file| 数据库文件中Page的数量 */
-  int origDbSize;             /* dbSize before the current change |本次修改前的数据库大小 */
-  int ckptSize, ckptJSize;    /* Size of database and journal at ckpt_begin()| 数据库大小和检查点的偏移量? 这里的数据库大小和上一个origDbSize有什么区别吗?  */
-  int nExtra;                 /* Add this many bytes to each in-memory page | 用户额外数据大小 */
-  void (*xDestructor)(void*); /* Call this routine when freeing pages | 释放Page时调用该函数。 释放是指从Page链表中将这个Page移除吗?*/
-  int nPage;                  /* Total number of in-memory pages| 在内存中的Page总数量 */
-  int nRef;                   /* Number of in-memory pages with PgHdr.nRef>0 | 引用数大于0的Page数量 */
-  int mxPage;                 /* Maximum number of pages to hold in cache| 缓存中保存的最大Page数 */
-  int nHit, nMiss, nOvfl;     /* Cache hits, missing, and LRU overflows| 缓存命中、丢失、LRU溢出数量，这里的缓存命中的统计是在获取Pager的时候是否从内存中获取.如果需要从磁盘获取，则nMiss+1 */
-  u8 journalOpen;             /* True if journal file descriptors is valid| 如果journal文件已被打开(这里的打开表示Pager获取到了日志文件的读写锁)则为true  */
-  u8 ckptOpen;                /* True if the checkpoint journal is open | 如果journal检查点功能开启，则为trur。这样看来journal和journal checkpoint是两个不同的功能? */
-  u8 ckptInUse;               /* True we are in a checkpoint| 如果Page在检查点中，则为true。这意思是这个Page已经被写入到checkpoint中吗? */
-  u8 noSync;                  /* Do not sync the journal if true| 写入数据库文件完成后是否立刻刷入磁盘 */
-  u8 state;                   /* SQLITE_UNLOCK, _READLOCK or _WRITELOCK| 状态：未加锁、读锁、写锁 */
-  u8 errMask;                 /* One of several kinds of errors| 错误信息? */
-  u8 tempFile;                /* zFilename is a temporary file| 如果zFilename是一个临时文件，则为true */
-  u8 readOnly;                /* True for a read-only database| 如果是只读的数据库，则为true */
-  u8 needSync;                /* True if an fsync() is needed on the journal | 写入数据库文件之前是否将日志刷入磁盘 */
-  u8 dirtyFile;               /* True if database file has changed in any way| 如果这个数据库文件有被修改，则为true  */
-  u8 *aInJournal;             /* One bit for each page in the database file| 数据库中每一页对应一位，表示对应pgno的page是否已被写入到日志文件中 */
-  u8 *aInCkpt;                /* One bit for each page in the database | 数据库中每一页对应一位，表示对应pgno的page是否写入checkpoint文件 */
-  PgHdr *pFirst, *pLast;      /* List of free pages | 没有被使用的Page组成的链表的首尾节点 */
-  PgHdr *pAll;                /* List of all pages | 总的Page链表的头节点 */
-  PgHdr *aHash[N_PG_HASH];    /* Hash table to map page number of PgHdr | 根据PageId查询PgHdr结构的哈希表, 这张表看起来值保存空闲Page */
+struct Pager
+{
+	char *zFilename;			 /* Name of the database file| 数据库文件 */
+	char *zJournal;				 /* Name of the journal file| Journal文件,跟事务相关 */
+	OsFile fd, jfd;				 /* File descriptors for database and journal| 数据库文件、journal文件描述符 */
+	OsFile cpfd;				 /* File descriptor for the checkpoint journal| journal检查点文件描述符 */
+	int dbSize;					 /* Number of pages in the file| 数据库文件中Page的数量 */
+	int origDbSize;				 /* dbSize before the current change |本次修改前的数据库大小 */
+	int ckptSize, ckptJSize;	 /* Size of database and journal at ckpt_begin()| 数据库大小和检查点的偏移量? 这里的数据库大小和上一个origDbSize有什么区别吗?  */
+	int nExtra;					 /* Add this many bytes to each in-memory page | 用户额外数据大小 */
+	void (*xDestructor)(void *); /* Call this routine when freeing pages | 释放Page时调用该函数。 释放是指从Page链表中将这个Page移除吗?*/
+	int nPage;					 /* Total number of in-memory pages| 在内存中的Page总数量 */
+	int nRef;					 /* Number of in-memory pages with PgHdr.nRef>0 | 引用数大于0的Page数量 */
+	int mxPage;					 /* Maximum number of pages to hold in cache| 缓存中保存的最大Page数 */
+	int nHit, nMiss, nOvfl;		 /* Cache hits, missing, and LRU overflows| 缓存命中、丢失、LRU溢出数量，这里的缓存命中的统计是在获取Pager的时候是否从内存中获取.如果需要从磁盘获取，则nMiss+1 */
+	u8 journalOpen;				 /* True if journal file descriptors is valid| 如果journal文件已被打开(这里的打开表示Pager获取到了日志文件的读写锁)则为true  */
+	u8 ckptOpen;				 /* True if the checkpoint journal is open | 如果journal检查点功能开启，则为trur。这样看来journal和journal checkpoint是两个不同的功能? */
+	u8 ckptInUse;				 /* True we are in a checkpoint| 如果Page在检查点中，则为true。这意思是这个Page已经被写入到checkpoint中吗? */
+	u8 noSync;					 /* Do not sync the journal if true| 写入数据库文件完成后是否立刻刷入磁盘 */
+	u8 state;					 /* SQLITE_UNLOCK, _READLOCK or _WRITELOCK| 状态：未加锁、读锁、写锁 */
+	u8 errMask;					 /* One of several kinds of errors| 错误信息? */
+	u8 tempFile;				 /* zFilename is a temporary file| 如果zFilename是一个临时文件，则为true */
+	u8 readOnly;				 /* True for a read-only database| 如果是只读的数据库，则为true */
+	u8 needSync;				 /* True if an fsync() is needed on the journal | 写入数据库文件之前是否将日志刷入磁盘 */
+	u8 dirtyFile;				 /* True if database file has changed in any way| 如果这个数据库文件有被修改，则为true  */
+	u8 *aInJournal;				 /* One bit for each page in the database file| 数据库中每一页对应一位，表示对应pgno的page是否已被写入到日志文件中 */
+	u8 *aInCkpt;				 /* One bit for each page in the database | 数据库中每一页对应一位，表示对应pgno的page是否写入checkpoint文件 */
+	PgHdr *pFirst, *pLast;		 /* List of free pages | 没有被使用的Page组成的链表的首尾节点 */
+	PgHdr *pAll;				 /* List of all pages | 总的Page链表的头节点 */
+	PgHdr *aHash[N_PG_HASH];	 /* Hash table to map page number of PgHdr | 根据PageId查询PgHdr结构的哈希表, 这张表看起来值保存空闲Page */
 };
 
 /*
 ** These are bits that can be set in Pager.errMask.
 */
-#define PAGER_ERR_FULL 0x01    /* a write() failed */
-#define PAGER_ERR_MEM 0x02     /* malloc() failed */
-#define PAGER_ERR_LOCK 0x04    /* error in the locking protocol */
+#define PAGER_ERR_FULL 0x01	   /* a write() failed */
+#define PAGER_ERR_MEM 0x02	   /* malloc() failed */
+#define PAGER_ERR_LOCK 0x04	   /* error in the locking protocol */
 #define PAGER_ERR_CORRUPT 0x08 /* database or journal corruption */
-#define PAGER_ERR_DISK 0x10    /* general disk I/O error - bad hard drive? */
+#define PAGER_ERR_DISK 0x10	   /* general disk I/O error - bad hard drive? */
 
 /*
 ** The journal file contains page records in the following
@@ -158,8 +159,8 @@ struct Pager {
 typedef struct PageRecord PageRecord;
 struct PageRecord
 {
-  Pgno pgno;                    /* The page number| Page Number */
-  char aData[SQLITE_PAGE_SIZE]; /* Original data for page pgno | Page的原始数据,不包含额外数据 */
+	Pgno pgno;					  /* The page number| Page Number */
+	char aData[SQLITE_PAGE_SIZE]; /* Original data for page pgno | Page的原始数据,不包含额外数据 */
 };
 
 /*
@@ -168,14 +169,14 @@ struct PageRecord
 ** 日志文件开头的magic string,用于文件健全性检查
 */
 static const unsigned char aJournalMagic[] = {
-    0xd9,
-    0xd5,
-    0x05,
-    0xf9,
-    0x20,
-    0xa1,
-    0x63,
-    0xd4,
+	0xd9,
+	0xd5,
+	0x05,
+	0xf9,
+	0x20,
+	0xa1,
+	0x63,
+	0xd4,
 };
 
 /*
@@ -191,13 +192,13 @@ static const unsigned char aJournalMagic[] = {
 int pager_refinfo_enable = 0;
 static void pager_refinfo(PgHdr *p)
 {
-  static int cnt = 0;
-  if (!pager_refinfo_enable)
-    return;
-  printf(
-      "REFCNT: %4d addr=0x%08x nRef=%d\n",
-      p->pgno, (int)PGHDR_TO_DATA(p), p->nRef);
-  cnt++; /* Something to set a breakpoint on */
+	static int cnt = 0;
+	if (!pager_refinfo_enable)
+		return;
+	printf(
+		"REFCNT: %4d addr=0x%08x nRef=%d\n",
+		p->pgno, (int)PGHDR_TO_DATA(p), p->nRef);
+	cnt++; /* Something to set a breakpoint on */
 }
 #define REFINFO(X) pager_refinfo(X)
 #else
@@ -211,18 +212,18 @@ static void pager_refinfo(PgHdr *p)
 */
 static int pager_errcode(Pager *pPager)
 {
-  int rc = SQLITE_OK;
-  if (pPager->errMask & PAGER_ERR_LOCK)
-    rc = SQLITE_PROTOCOL;
-  if (pPager->errMask & PAGER_ERR_DISK)
-    rc = SQLITE_IOERR;
-  if (pPager->errMask & PAGER_ERR_FULL)
-    rc = SQLITE_FULL;
-  if (pPager->errMask & PAGER_ERR_MEM)
-    rc = SQLITE_NOMEM;
-  if (pPager->errMask & PAGER_ERR_CORRUPT)
-    rc = SQLITE_CORRUPT;
-  return rc;
+	int rc = SQLITE_OK;
+	if (pPager->errMask & PAGER_ERR_LOCK)
+		rc = SQLITE_PROTOCOL;
+	if (pPager->errMask & PAGER_ERR_DISK)
+		rc = SQLITE_IOERR;
+	if (pPager->errMask & PAGER_ERR_FULL)
+		rc = SQLITE_FULL;
+	if (pPager->errMask & PAGER_ERR_MEM)
+		rc = SQLITE_NOMEM;
+	if (pPager->errMask & PAGER_ERR_CORRUPT)
+		rc = SQLITE_CORRUPT;
+	return rc;
 }
 
 /*
@@ -233,13 +234,13 @@ static int pager_errcode(Pager *pPager)
 */
 static PgHdr *pager_lookup(Pager *pPager, Pgno pgno)
 {
-  PgHdr *p = pPager->aHash[pgno % N_PG_HASH];
-  while (p && p->pgno != pgno)
-  {
-    // 由于存在哈希碰撞，在获取到哈希值所在的指针后还需要遍历哈希链表
-    p = p->pNextHash;
-  }
-  return p;
+	PgHdr *p = pPager->aHash[pgno % N_PG_HASH];
+	while (p && p->pgno != pgno)
+	{
+		// 由于存在哈希碰撞，在获取到哈希值所在的指针后还需要遍历哈希链表
+		p = p->pNextHash;
+	}
+	return p;
 }
 
 /*
@@ -250,26 +251,26 @@ static PgHdr *pager_lookup(Pager *pPager, Pgno pgno)
 */
 static void pager_reset(Pager *pPager)
 {
-  PgHdr *pPg, *pNext;
-  for (pPg = pPager->pAll; pPg; pPg = pNext)
-  {
-    pNext = pPg->pNextAll;
-    sqliteFree(pPg);
-  }
-  pPager->pFirst = 0;
-  pPager->pLast = 0;
-  pPager->pAll = 0;
-  memset(pPager->aHash, 0, sizeof(pPager->aHash));
-  pPager->nPage = 0;
-  if (pPager->state >= SQLITE_WRITELOCK)
-  {
-    sqlitepager_rollback(pPager);
-  }
-  sqliteOsUnlock(&pPager->fd);
-  pPager->state = SQLITE_UNLOCK;
-  pPager->dbSize = -1;
-  pPager->nRef = 0;
-  assert(pPager->journalOpen == 0);
+	PgHdr *pPg, *pNext;
+	for (pPg = pPager->pAll; pPg; pPg = pNext)
+	{
+		pNext = pPg->pNextAll;
+		sqliteFree(pPg);
+	}
+	pPager->pFirst = 0;
+	pPager->pLast = 0;
+	pPager->pAll = 0;
+	memset(pPager->aHash, 0, sizeof(pPager->aHash));
+	pPager->nPage = 0;
+	if (pPager->state >= SQLITE_WRITELOCK)
+	{
+		sqlitepager_rollback(pPager);
+	}
+	sqliteOsUnlock(&pPager->fd);
+	pPager->state = SQLITE_UNLOCK;
+	pPager->dbSize = -1;
+	pPager->nRef = 0;
+	assert(pPager->journalOpen == 0);
 }
 
 /*
@@ -280,31 +281,31 @@ static void pager_reset(Pager *pPager)
 */
 static int pager_unwritelock(Pager *pPager)
 {
-  int rc;
-  PgHdr *pPg;
-  if (pPager->state < SQLITE_WRITELOCK)
-    return SQLITE_OK;
-  sqlitepager_ckpt_commit(pPager);
+	int rc;
+	PgHdr *pPg;
+	if (pPager->state < SQLITE_WRITELOCK)
+		return SQLITE_OK;
+	sqlitepager_ckpt_commit(pPager);
 
-  if (pPager->ckptOpen)
-  {
-    sqliteOsClose(&pPager->cpfd);
-    pPager->ckptOpen = 0;
-  }
-  sqliteOsClose(&pPager->jfd);
-  pPager->journalOpen = 0;
-  sqliteOsDelete(pPager->zJournal);
-  rc = sqliteOsReadLock(&pPager->fd);
-  assert(rc == SQLITE_OK);
-  sqliteFree(pPager->aInJournal);
-  pPager->aInJournal = 0;
-  for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
-  {
-    pPg->inJournal = 0;
-    pPg->dirty = 0;
-  }
-  pPager->state = SQLITE_READLOCK;
-  return rc;
+	if (pPager->ckptOpen)
+	{
+		sqliteOsClose(&pPager->cpfd);
+		pPager->ckptOpen = 0;
+	}
+	sqliteOsClose(&pPager->jfd);
+	pPager->journalOpen = 0;
+	sqliteOsDelete(pPager->zJournal);
+	rc = sqliteOsReadLock(&pPager->fd);
+	assert(rc == SQLITE_OK);
+	sqliteFree(pPager->aInJournal);
+	pPager->aInJournal = 0;
+	for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
+	{
+		pPg->inJournal = 0;
+		pPg->dirty = 0;
+	}
+	pPager->state = SQLITE_READLOCK;
+	return rc;
 }
 
 /*
@@ -314,40 +315,40 @@ static int pager_unwritelock(Pager *pPager)
 */
 static int pager_playback_one_page(Pager *pPager, OsFile *jfd)
 {
-  int rc;
-  PgHdr *pPg; /* An existing page in the cache */
-  PageRecord pgRec;
+	int rc;
+	PgHdr *pPg; /* An existing page in the cache */
+	PageRecord pgRec;
 
-  // 从jfd中读取一条Page记录
-  rc = sqliteOsRead(jfd, &pgRec, sizeof(pgRec));
-  if (rc != SQLITE_OK)
-    return rc;
+	// 从jfd中读取一条Page记录
+	rc = sqliteOsRead(jfd, &pgRec, sizeof(pgRec));
+	if (rc != SQLITE_OK)
+		return rc;
 
-  /* Sanity checking on the page */
-  /* 页面的健全性检查 */
-  if (pgRec.pgno > pPager->dbSize || pgRec.pgno == 0)
-    return SQLITE_CORRUPT;
+	/* Sanity checking on the page */
+	/* 页面的健全性检查 */
+	if (pgRec.pgno > pPager->dbSize || pgRec.pgno == 0)
+		return SQLITE_CORRUPT;
 
-  /* Playback the page.  Update the in-memory copy of the page
-  ** at the same time, if there is one.
-  ** 回放页面，如果页面有内存副本，则同时更新
-  */
-  pPg = pager_lookup(pPager, pgRec.pgno);
-  if (pPg)
-  {
-    // 内存中有副本
-    // 1. 将记录中的data复制到内存中page的末尾
-    memcpy(PGHDR_TO_DATA(pPg), pgRec.aData, SQLITE_PAGE_SIZE);
-    // 2. 将pager的额外信息(nExtra)部分置为0
-    memset(PGHDR_TO_EXTRA(pPg), 0, pPager->nExtra);
-  }
-  rc = sqliteOsSeek(&pPager->fd, (pgRec.pgno - 1) * SQLITE_PAGE_SIZE);
-  if (rc == SQLITE_OK)
-  {
-    // 覆盖Page
-    rc = sqliteOsWrite(&pPager->fd, pgRec.aData, SQLITE_PAGE_SIZE);
-  }
-  return rc;
+	/* Playback the page.  Update the in-memory copy of the page
+	** at the same time, if there is one.
+	** 回放页面，如果页面有内存副本，则同时更新
+	*/
+	pPg = pager_lookup(pPager, pgRec.pgno);
+	if (pPg)
+	{
+		// 内存中有副本
+		// 1. 将记录中的data复制到内存中page的末尾
+		memcpy(PGHDR_TO_DATA(pPg), pgRec.aData, SQLITE_PAGE_SIZE);
+		// 2. 将pager的额外信息(nExtra)部分置为0
+		memset(PGHDR_TO_EXTRA(pPg), 0, pPager->nExtra);
+	}
+	rc = sqliteOsSeek(&pPager->fd, (pgRec.pgno - 1) * SQLITE_PAGE_SIZE);
+	if (rc == SQLITE_OK)
+	{
+		// 覆盖Page
+		rc = sqliteOsWrite(&pPager->fd, pgRec.aData, SQLITE_PAGE_SIZE);
+	}
+	return rc;
 }
 
 /*
@@ -381,78 +382,78 @@ static int pager_playback_one_page(Pager *pPager, OsFile *jfd)
 */
 static int pager_playback(Pager *pPager)
 {
-  int nRec;      /* Number of Records| 记录条数 */
-  int i;         /* Loop counter| 循环计数器 */
-  Pgno mxPg = 0; /* Size of the original file in pages| 原始文件的Page大小 */
-  unsigned char aMagic[sizeof(aJournalMagic)];
-  int rc;
+	int nRec;	   /* Number of Records| 记录条数 */
+	int i;		   /* Loop counter| 循环计数器 */
+	Pgno mxPg = 0; /* Size of the original file in pages| 原始文件的Page大小 */
+	unsigned char aMagic[sizeof(aJournalMagic)];
+	int rc;
 
-  /* Figure out how many records are in the journal.  Abort early if
-  ** the journal is empty.
-  ** 找出日志中有多少条记录
-  */
-  assert(pPager->journalOpen);
-  sqliteOsSeek(&pPager->jfd, 0);
-  rc = sqliteOsFileSize(&pPager->jfd, &nRec);
-  if (rc != SQLITE_OK)
-  {
-    goto end_playback;
-  }
-  // 这里的计算过程表示在写入日志的时候确保了记录不会写入一半
-  nRec = (nRec - (sizeof(aMagic) + sizeof(Pgno))) / sizeof(PageRecord);
-  if (nRec <= 0)
-  {
-    goto end_playback;
-  }
+	/* Figure out how many records are in the journal.  Abort early if
+	** the journal is empty.
+	** 找出日志中有多少条记录
+	*/
+	assert(pPager->journalOpen);
+	sqliteOsSeek(&pPager->jfd, 0);
+	rc = sqliteOsFileSize(&pPager->jfd, &nRec);
+	if (rc != SQLITE_OK)
+	{
+		goto end_playback;
+	}
+	// 这里的计算过程表示在写入日志的时候确保了记录不会写入一半
+	nRec = (nRec - (sizeof(aMagic) + sizeof(Pgno))) / sizeof(PageRecord);
+	if (nRec <= 0)
+	{
+		goto end_playback;
+	}
 
-  /* Read the beginning of the journal and truncate the
-  ** database file back to its original size.
-  ** 读取文件校验头,对文件进行格式校验
-  */
-  rc = sqliteOsRead(&pPager->jfd, aMagic, sizeof(aMagic));
-  if (rc != SQLITE_OK || memcmp(aMagic, aJournalMagic, sizeof(aMagic)) != 0)
-  {
-    rc = SQLITE_PROTOCOL;
-    goto end_playback;
-  }
-  // 读取mx_page参数
-  rc = sqliteOsRead(&pPager->jfd, &mxPg, sizeof(mxPg));
-  if (rc != SQLITE_OK)
-  {
-    goto end_playback;
-  }
+	/* Read the beginning of the journal and truncate the
+	** database file back to its original size.
+	** 读取文件校验头,对文件进行格式校验
+	*/
+	rc = sqliteOsRead(&pPager->jfd, aMagic, sizeof(aMagic));
+	if (rc != SQLITE_OK || memcmp(aMagic, aJournalMagic, sizeof(aMagic)) != 0)
+	{
+		rc = SQLITE_PROTOCOL;
+		goto end_playback;
+	}
+	// 读取mx_page参数
+	rc = sqliteOsRead(&pPager->jfd, &mxPg, sizeof(mxPg));
+	if (rc != SQLITE_OK)
+	{
+		goto end_playback;
+	}
 
-  // 将数据库文件截断为修改前的大小
-  rc = sqliteOsTruncate(&pPager->fd, mxPg * SQLITE_PAGE_SIZE);
-  if (rc != SQLITE_OK)
-  {
-    goto end_playback;
-  }
-  pPager->dbSize = mxPg;
+	// 将数据库文件截断为修改前的大小
+	rc = sqliteOsTruncate(&pPager->fd, mxPg * SQLITE_PAGE_SIZE);
+	if (rc != SQLITE_OK)
+	{
+		goto end_playback;
+	}
+	pPager->dbSize = mxPg;
 
-  /* Copy original pages out of the journal and back into the database file.
-   * 将原始页面从日志中复制出来并返回到数据库文件中
-   */
-  for (i = nRec - 1; i >= 0; i--)
-  {
-    // 复现日志，这里只会将日志的数据拷贝的fd文件中，并不会加载其中的page
-    rc = pager_playback_one_page(pPager, &pPager->jfd);
-    if (rc != SQLITE_OK)
-      break;
-  }
+	/* Copy original pages out of the journal and back into the database file.
+	 * 将原始页面从日志中复制出来并返回到数据库文件中
+	 */
+	for (i = nRec - 1; i >= 0; i--)
+	{
+		// 复现日志，这里只会将日志的数据拷贝的fd文件中，并不会加载其中的page
+		rc = pager_playback_one_page(pPager, &pPager->jfd);
+		if (rc != SQLITE_OK)
+			break;
+	}
 
 end_playback:
-  if (rc != SQLITE_OK)
-  {
-    pager_unwritelock(pPager);
-    pPager->errMask |= PAGER_ERR_CORRUPT;
-    rc = SQLITE_CORRUPT;
-  }
-  else
-  {
-    rc = pager_unwritelock(pPager);
-  }
-  return rc;
+	if (rc != SQLITE_OK)
+	{
+		pager_unwritelock(pPager);
+		pPager->errMask |= PAGER_ERR_CORRUPT;
+		rc = SQLITE_CORRUPT;
+	}
+	else
+	{
+		rc = pager_unwritelock(pPager);
+	}
+	return rc;
 }
 
 /*
@@ -471,64 +472,64 @@ end_playback:
 */
 static int pager_ckpt_playback(Pager *pPager)
 {
-  int nRec; /* Number of Records */
-  int i;    /* Loop counter */
-  int rc;
+	int nRec; /* Number of Records */
+	int i;	  /* Loop counter */
+	int rc;
 
-  /* Truncate the database back to its original size.
-   */
-  rc = sqliteOsTruncate(&pPager->fd, pPager->ckptSize * SQLITE_PAGE_SIZE);
-  pPager->dbSize = pPager->ckptSize;
+	/* Truncate the database back to its original size.
+	 */
+	rc = sqliteOsTruncate(&pPager->fd, pPager->ckptSize * SQLITE_PAGE_SIZE);
+	pPager->dbSize = pPager->ckptSize;
 
-  /* Figure out how many records are in the checkpoint journal.
-   */
-  assert(pPager->ckptInUse && pPager->journalOpen);
-  sqliteOsSeek(&pPager->cpfd, 0);
-  rc = sqliteOsFileSize(&pPager->cpfd, &nRec);
-  if (rc != SQLITE_OK)
-  {
-    goto end_ckpt_playback;
-  }
-  nRec /= sizeof(PageRecord);
+	/* Figure out how many records are in the checkpoint journal.
+	 */
+	assert(pPager->ckptInUse && pPager->journalOpen);
+	sqliteOsSeek(&pPager->cpfd, 0);
+	rc = sqliteOsFileSize(&pPager->cpfd, &nRec);
+	if (rc != SQLITE_OK)
+	{
+		goto end_ckpt_playback;
+	}
+	nRec /= sizeof(PageRecord);
 
-  /* Copy original pages out of the checkpoint journal and back into the
-  ** database file.
-  */
-  for (i = nRec - 1; i >= 0; i--)
-  {
-    rc = pager_playback_one_page(pPager, &pPager->cpfd);
-    if (rc != SQLITE_OK)
-      goto end_ckpt_playback;
-  }
+	/* Copy original pages out of the checkpoint journal and back into the
+	** database file.
+	*/
+	for (i = nRec - 1; i >= 0; i--)
+	{
+		rc = pager_playback_one_page(pPager, &pPager->cpfd);
+		if (rc != SQLITE_OK)
+			goto end_ckpt_playback;
+	}
 
-  /* Figure out how many pages need to be copied out of the transaction
-  ** journal.
-  */
-  rc = sqliteOsSeek(&pPager->jfd, pPager->ckptJSize);
-  if (rc != SQLITE_OK)
-  {
-    goto end_ckpt_playback;
-  }
-  rc = sqliteOsFileSize(&pPager->jfd, &nRec);
-  if (rc != SQLITE_OK)
-  {
-    goto end_ckpt_playback;
-  }
-  nRec = (nRec - pPager->ckptJSize) / sizeof(PageRecord);
-  for (i = nRec - 1; i >= 0; i--)
-  {
-    rc = pager_playback_one_page(pPager, &pPager->jfd);
-    if (rc != SQLITE_OK)
-      goto end_ckpt_playback;
-  }
+	/* Figure out how many pages need to be copied out of the transaction
+	** journal.
+	*/
+	rc = sqliteOsSeek(&pPager->jfd, pPager->ckptJSize);
+	if (rc != SQLITE_OK)
+	{
+		goto end_ckpt_playback;
+	}
+	rc = sqliteOsFileSize(&pPager->jfd, &nRec);
+	if (rc != SQLITE_OK)
+	{
+		goto end_ckpt_playback;
+	}
+	nRec = (nRec - pPager->ckptJSize) / sizeof(PageRecord);
+	for (i = nRec - 1; i >= 0; i--)
+	{
+		rc = pager_playback_one_page(pPager, &pPager->jfd);
+		if (rc != SQLITE_OK)
+			goto end_ckpt_playback;
+	}
 
 end_ckpt_playback:
-  if (rc != SQLITE_OK)
-  {
-    pPager->errMask |= PAGER_ERR_CORRUPT;
-    rc = SQLITE_CORRUPT;
-  }
-  return rc;
+	if (rc != SQLITE_OK)
+	{
+		pPager->errMask |= PAGER_ERR_CORRUPT;
+		rc = SQLITE_CORRUPT;
+	}
+	return rc;
 }
 
 /*
@@ -543,19 +544,19 @@ end_ckpt_playback:
 */
 void sqlitepager_set_cachesize(Pager *pPager, int mxPage)
 {
-  if (mxPage >= 0)
-  {
-    pPager->noSync = pPager->tempFile;
-  }
-  else
-  {
-    pPager->noSync = 1;
-    mxPage = -mxPage;
-  }
-  if (mxPage > 10)
-  {
-    pPager->mxPage = mxPage;
-  }
+	if (mxPage >= 0)
+	{
+		pPager->noSync = pPager->tempFile;
+	}
+	else
+	{
+		pPager->noSync = 1;
+		mxPage = -mxPage;
+	}
+	if (mxPage > 10)
+	{
+		pPager->mxPage = mxPage;
+	}
 }
 
 /*
@@ -569,15 +570,15 @@ void sqlitepager_set_cachesize(Pager *pPager, int mxPage)
 */
 static int sqlitepager_opentemp(char *zFile, OsFile *fd)
 {
-  int cnt = 8;
-  int rc;
-  do
-  {
-    cnt--;
-    sqliteOsTempFileName(zFile);
-    rc = sqliteOsOpenExclusive(zFile, fd, 1);
-  } while (cnt > 0 && rc != SQLITE_OK);
-  return rc;
+	int cnt = 8;
+	int rc;
+	do
+	{
+		cnt--;
+		sqliteOsTempFileName(zFile);
+		rc = sqliteOsOpenExclusive(zFile, fd, 1);
+	} while (cnt > 0 && rc != SQLITE_OK);
+	return rc;
 }
 
 /*
@@ -596,91 +597,91 @@ static int sqlitepager_opentemp(char *zFile, OsFile *fd)
 **
 */
 int sqlitepager_open(
-    Pager **ppPager,       /* Return the Pager structure here| 创建的Pager指针 */
-    const char *zFilename, /* Name of the database file to open| 要打开的数据库文件 */
-    int mxPage,            /* Max number of in-memory cache pages| 内存中Page的最大缓存数 */
-    int nExtra             /* Extra bytes append to each in-memory page| Page中的额外信息大小 */
+	Pager **ppPager,	   /* Return the Pager structure here| 创建的Pager指针 */
+	const char *zFilename, /* Name of the database file to open| 要打开的数据库文件 */
+	int mxPage,			   /* Max number of in-memory cache pages| 内存中Page的最大缓存数 */
+	int nExtra			   /* Extra bytes append to each in-memory page| Page中的额外信息大小 */
 )
 {
-  Pager *pPager;
-  int nameLen;
-  OsFile fd;
-  int rc;
-  int tempFile;
-  int readOnly = 0;
-  char zTemp[SQLITE_TEMPNAME_SIZE];
+	Pager *pPager;
+	int nameLen;
+	OsFile fd;
+	int rc;
+	int tempFile;
+	int readOnly = 0;
+	char zTemp[SQLITE_TEMPNAME_SIZE];
 
-  *ppPager = 0;
-  if (sqlite_malloc_failed)
-  {
-    // sqlite获取内存失败
-    return SQLITE_NOMEM;
-  }
-  if (zFilename)
-  {
-    // 从zFilename获取文件读写句柄，这时候并没有锁定文件
-    rc = sqliteOsOpenReadWrite(zFilename, &fd, &readOnly);
-    tempFile = 0;
-  }
-  else
-  {
-    // 从临时文件夹中创建一个文件
-    rc = sqlitepager_opentemp(zTemp, &fd);
-    zFilename = zTemp;
-    tempFile = 1;
-  }
+	*ppPager = 0;
+	if (sqlite_malloc_failed)
+	{
+		// sqlite获取内存失败
+		return SQLITE_NOMEM;
+	}
+	if (zFilename)
+	{
+		// 从zFilename获取文件读写句柄，这时候并没有锁定文件
+		rc = sqliteOsOpenReadWrite(zFilename, &fd, &readOnly);
+		tempFile = 0;
+	}
+	else
+	{
+		// 从临时文件夹中创建一个文件
+		rc = sqlitepager_opentemp(zTemp, &fd);
+		zFilename = zTemp;
+		tempFile = 1;
+	}
 
-  if (rc != SQLITE_OK)
-  {
-    return SQLITE_CANTOPEN;
-  }
-  // 获取zFilename长度
-  nameLen = strlen(zFilename);
+	if (rc != SQLITE_OK)
+	{
+		return SQLITE_CANTOPEN;
+	}
+	// 获取zFilename长度
+	nameLen = strlen(zFilename);
 
-  // 开辟一块内存空间,创建对象
-  pPager = malloc(sizeof(*pPager) + nameLen * 2 + 30);
-  memset(pPager, 0, sizeof(*pPager) + nameLen * 2 + 30);
+	// 开辟一块内存空间,创建对象
+	pPager = malloc(sizeof(*pPager) + nameLen * 2 + 30);
+	memset(pPager, 0, sizeof(*pPager) + nameLen * 2 + 30);
 
-  if (pPager == 0)
-  {
-    // 如果获取内存空间失败
-    sqliteOsClose(&fd);
-    return SQLITE_NOMEM;
-  }
+	if (pPager == 0)
+	{
+		// 如果获取内存空间失败
+		sqliteOsClose(&fd);
+		return SQLITE_NOMEM;
+	}
 
-  // 在pPager之后获取一块内存空间
-  pPager->zFilename = (char *)&pPager[1];
-  // 在zFilename之后获取一块空间
-  pPager->zJournal = &pPager->zFilename[nameLen + 1];
-  // 内存空间的布局应该是这样[Pager][zFilename][zJournal]
-  // 这种数组的写法就是对指针的移动
-  strcpy(pPager->zFilename, zFilename);
-  strcpy(pPager->zJournal, zFilename);
-  strcpy(&pPager->zJournal[nameLen], "-journal");
+	// 在pPager之后获取一块内存空间
+	pPager->zFilename = (char *)&pPager[1];
+	// 在zFilename之后获取一块空间
+	pPager->zJournal = &pPager->zFilename[nameLen + 1];
+	// 内存空间的布局应该是这样[Pager][zFilename][zJournal]
+	// 这种数组的写法就是对指针的移动
+	strcpy(pPager->zFilename, zFilename);
+	strcpy(pPager->zJournal, zFilename);
+	strcpy(&pPager->zJournal[nameLen], "-journal");
 
-  pPager->fd = fd;
-  pPager->journalOpen = 0;
-  pPager->ckptOpen = 0;
-  pPager->ckptInUse = 0;
-  pPager->nRef = 0;
-  pPager->dbSize = -1;
-  pPager->ckptSize = 0;
-  pPager->ckptJSize = 0;
-  pPager->nPage = 0;
-  pPager->mxPage = mxPage > 5 ? mxPage : 10;
-  pPager->state = SQLITE_UNLOCK;
-  pPager->errMask = 0;
-  pPager->tempFile = tempFile;
-  pPager->readOnly = readOnly;
-  pPager->needSync = 0;
-  pPager->noSync = pPager->tempFile;
-  pPager->pFirst = 0;
-  pPager->pLast = 0;
-  pPager->nExtra = nExtra;
-  memset(pPager->aHash, 0, sizeof(pPager->aHash));
-  *ppPager = pPager;
+	pPager->fd = fd;
+	pPager->journalOpen = 0;
+	pPager->ckptOpen = 0;
+	pPager->ckptInUse = 0;
+	pPager->nRef = 0;
+	pPager->dbSize = -1;
+	pPager->ckptSize = 0;
+	pPager->ckptJSize = 0;
+	pPager->nPage = 0;
+	pPager->mxPage = mxPage > 5 ? mxPage : 10;
+	pPager->state = SQLITE_UNLOCK;
+	pPager->errMask = 0;
+	pPager->tempFile = tempFile;
+	pPager->readOnly = readOnly;
+	pPager->needSync = 0;
+	pPager->noSync = pPager->tempFile;
+	pPager->pFirst = 0;
+	pPager->pLast = 0;
+	pPager->nExtra = nExtra;
+	memset(pPager->aHash, 0, sizeof(pPager->aHash));
+	*ppPager = pPager;
 
-  return SQLITE_OK;
+	return SQLITE_OK;
 }
 
 /*
@@ -693,7 +694,7 @@ int sqlitepager_open(
 */
 void sqlitepager_set_destructor(Pager *pPager, void (*xDesc)(void *))
 {
-  pPager->xDestructor = xDesc;
+	pPager->xDestructor = xDesc;
 }
 
 /*
@@ -703,23 +704,24 @@ void sqlitepager_set_destructor(Pager *pPager, void (*xDesc)(void *))
 */
 int sqlitepager_pagecount(Pager *pPager)
 {
-  int n;
-  assert(pPager != 0);
-  if (pPager->dbSize >= 0)
-  {
-    return pPager->dbSize;
-  }
-  if (sqliteOsFileSize(&pPager->fd, &n) != SQLITE_OK)
-  {
-    pPager->errMask |= PAGER_ERR_DISK;
-    return 0;
-  }
-  n /= SQLITE_PAGE_SIZE;
-  if (pPager->state != SQLITE_UNLOCK)
-  {
-    pPager->dbSize = n;
-  }
-  return n;
+	int n;
+	assert(pPager != 0);
+	if (pPager->dbSize >= 0)
+	{
+		return pPager->dbSize;
+	}
+
+	if (sqliteOsFileSize(&pPager->fd, &n) != SQLITE_OK)
+	{
+		pPager->errMask |= PAGER_ERR_DISK;
+		return 0;
+	}
+	n /= SQLITE_PAGE_SIZE;
+	if (pPager->state != SQLITE_UNLOCK)
+	{
+		pPager->dbSize = n;
+	}
+	return n;
 }
 
 /*
@@ -733,41 +735,41 @@ int sqlitepager_pagecount(Pager *pPager)
 */
 int sqlitepager_close(Pager *pPager)
 {
-  PgHdr *pPg, *pNext;
-  switch (pPager->state)
-  {
-  case SQLITE_WRITELOCK:
-  {
-    sqlitepager_rollback(pPager);
-    sqliteOsUnlock(&pPager->fd);
-    assert(pPager->journalOpen == 0);
-    break;
-  }
-  case SQLITE_READLOCK:
-  {
-    sqliteOsUnlock(&pPager->fd);
-    break;
-  }
-  default:
-  {
-    /* Do nothing */
-    break;
-  }
-  }
-  for (pPg = pPager->pAll; pPg; pPg = pNext)
-  {
-    pNext = pPg->pNextAll;
-    sqliteFree(pPg);
-  }
-  sqliteOsClose(&pPager->fd);
-  assert(pPager->journalOpen == 0);
-  /* Temp files are automatically deleted by the OS
-  ** if( pPager->tempFile ){
-  **   sqliteOsDelete(pPager->zFilename);
-  ** }
-  */
-  sqliteFree(pPager);
-  return SQLITE_OK;
+	PgHdr *pPg, *pNext;
+	switch (pPager->state)
+	{
+	case SQLITE_WRITELOCK:
+	{
+		sqlitepager_rollback(pPager);
+		sqliteOsUnlock(&pPager->fd);
+		assert(pPager->journalOpen == 0);
+		break;
+	}
+	case SQLITE_READLOCK:
+	{
+		sqliteOsUnlock(&pPager->fd);
+		break;
+	}
+	default:
+	{
+		/* Do nothing */
+		break;
+	}
+	}
+	for (pPg = pPager->pAll; pPg; pPg = pNext)
+	{
+		pNext = pPg->pNextAll;
+		sqliteFree(pPg);
+	}
+	sqliteOsClose(&pPager->fd);
+	assert(pPager->journalOpen == 0);
+	/* Temp files are automatically deleted by the OS
+	** if( pPager->tempFile ){
+	**   sqliteOsDelete(pPager->zFilename);
+	** }
+	*/
+	sqliteFree(pPager);
+	return SQLITE_OK;
 }
 
 /*
@@ -775,8 +777,8 @@ int sqlitepager_close(Pager *pPager)
 */
 Pgno sqlitepager_pagenumber(void *pData)
 {
-  PgHdr *p = DATA_TO_PGHDR(pData);
-  return p->pgno;
+	PgHdr *p = DATA_TO_PGHDR(pData);
+	return p->pgno;
 }
 
 /*
@@ -787,35 +789,34 @@ Pgno sqlitepager_pagenumber(void *pData)
 */
 static void page_ref(PgHdr *pPg)
 {
-  if (pPg->nRef == 0)
-  {
-    /* The page is currently on the freelist.  Remove it. 
-      根据这个page所在freelist的位置，将其移出链表
-    */
-    if (pPg->pPrevFree)
-    {
-      pPg->pPrevFree->pNextFree = pPg->pNextFree;
-    }
-    else
-    {
-      pPg->pPager->pFirst = pPg->pNextFree;
-    }
+	if (pPg->nRef == 0)
+	{
+		/* The page is currently on the freelist.  Remove it.
+		  根据这个page所在freelist的位置，将其移出链表
+		*/
+		if (pPg->pPrevFree)
+		{
+			pPg->pPrevFree->pNextFree = pPg->pNextFree;
+		}
+		else
+		{
+			pPg->pPager->pFirst = pPg->pNextFree;
+		}
 
+		if (pPg->pNextFree)
+		{
+			pPg->pNextFree->pPrevFree = pPg->pPrevFree;
+		}
+		else
+		{
+			pPg->pPager->pLast = pPg->pPrevFree;
+		}
 
-    if (pPg->pNextFree)
-    {
-      pPg->pNextFree->pPrevFree = pPg->pPrevFree;
-    }
-    else
-    {
-      pPg->pPager->pLast = pPg->pPrevFree;
-    }
-
-    // 给这个Page所在的页面管理器引用计数+1
-    pPg->pPager->nRef++;
-  }
-  pPg->nRef++;
-  REFINFO(pPg);
+		// 给这个Page所在的页面管理器引用计数+1
+		pPg->pPager->nRef++;
+	}
+	pPg->nRef++;
+	REFINFO(pPg);
 }
 
 /*
@@ -824,9 +825,9 @@ static void page_ref(PgHdr *pPg)
 */
 int sqlitepager_ref(void *pData)
 {
-  PgHdr *pPg = DATA_TO_PGHDR(pData);
-  page_ref(pPg);
-  return SQLITE_OK;
+	PgHdr *pPg = DATA_TO_PGHDR(pData);
+	page_ref(pPg);
+	return SQLITE_OK;
 }
 
 /*
@@ -848,30 +849,31 @@ int sqlitepager_ref(void *pData)
 */
 static int syncAllPages(Pager *pPager)
 {
-  PgHdr *pPg;
-  int rc = SQLITE_OK;
-  if (pPager->needSync)
-  {
-    if (!pPager->tempFile)
-    {
-      rc = sqliteOsSync(&pPager->jfd);
-      if (rc != 0)
-        return rc;
-    }
-    pPager->needSync = 0;
-  }
-  for (pPg = pPager->pFirst; pPg; pPg = pPg->pNextFree)
-  {
-    if (pPg->dirty)
-    {
-      sqliteOsSeek(&pPager->fd, (pPg->pgno - 1) * SQLITE_PAGE_SIZE);
-      rc = sqliteOsWrite(&pPager->fd, PGHDR_TO_DATA(pPg), SQLITE_PAGE_SIZE);
-      if (rc != SQLITE_OK)
-        break;
-      pPg->dirty = 0;
-    }
-  }
-  return rc;
+	PgHdr *pPg;
+	int rc = SQLITE_OK;
+	if (pPager->needSync)
+	{
+		if (!pPager->tempFile)
+		{
+			rc = sqliteOsSync(&pPager->jfd);
+			if (rc != 0)
+				return rc;
+		}
+		pPager->needSync = 0;
+	}
+	for (pPg = pPager->pFirst; pPg; pPg = pPg->pNextFree)
+	{
+		if (pPg->dirty)
+		{
+			// 这里并不会保存Page的元数据，只保存Page的Data信息
+			sqliteOsSeek(&pPager->fd, (pPg->pgno - 1) * SQLITE_PAGE_SIZE);
+			rc = sqliteOsWrite(&pPager->fd, PGHDR_TO_DATA(pPg), SQLITE_PAGE_SIZE);
+			if (rc != SQLITE_OK)
+				break;
+			pPg->dirty = 0;
+		}
+	}
+	return rc;
 }
 
 /*
@@ -912,322 +914,328 @@ static int syncAllPages(Pager *pPager)
 */
 int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage)
 {
-  PgHdr *pPg;
+	PgHdr *pPg;
 
-  /* Make sure we have not hit any critical errors.
-    错误检查
-  */
-  if (pPager == 0 || pgno == 0)
-  {
-    return SQLITE_ERROR;
-  }
-  if (pPager->errMask & ~(PAGER_ERR_FULL))
-  {
-    return pager_errcode(pPager);
-  }
- 
-  /* If this is the first page accessed, then get a read lock
-  ** on the database file.
-  ** 如果pager的引用数为0
-  ** 意味着尚未有任何一个Page被引用，该阶段在初始运行阶段必定出现。
-  **
-  */
-  if (pPager->nRef == 0)
-  {
-    // 修改pPager的状态,改为读锁状态
-    if (sqliteOsReadLock(&pPager->fd) != SQLITE_OK)
-    {
-      *ppPage = 0;
-      return SQLITE_BUSY;
-    }
-    pPager->state = SQLITE_READLOCK;
+	/* Make sure we have not hit any critical errors.
+	  错误检查
+	*/
+	if (pPager == 0 || pgno == 0)
+	{
+		return SQLITE_ERROR;
+	}
+	if (pPager->errMask & ~(PAGER_ERR_FULL))
+	{
+		return pager_errcode(pPager);
+	}
 
-    /* If a journal file exists, try to play it back.
-    如果日志文件存在，则尝试复现
-    在Pager启动后，客户端尝试获取首个Page的时候，会先执行日志复现操作。
-    */
-    if (sqliteOsFileExists(pPager->zJournal))
-    {
-      int rc, dummy;
+	/* If this is the first page accessed, then get a read lock
+	** on the database file.
+	** 如果pager的引用数为0
+	** 意味着尚未有任何一个Page被引用，该阶段在初始运行阶段必定出现。
+	**
+	*/
+	if (pPager->nRef == 0)
+	{
+		// 修改pPager的状态,改为读锁状态
+		if (sqliteOsReadLock(&pPager->fd) != SQLITE_OK)
+		{
+			*ppPage = 0;
+			return SQLITE_BUSY;
+		}
+		pPager->state = SQLITE_READLOCK;
 
-      /* Get a write lock on the database
-      对数据库文件获取写锁
-      */
-      rc = sqliteOsWriteLock(&pPager->fd);
-      if (rc != SQLITE_OK)
-      {
-        // 获取失败，释放所有的锁
-        rc = sqliteOsUnlock(&pPager->fd);
-        assert(rc == SQLITE_OK);
-        *ppPage = 0;
-        // 数据库文件已经被锁定
-        return SQLITE_BUSY;
-      }
-      pPager->state = SQLITE_WRITELOCK;
+		/* If a journal file exists, try to play it back.
+		如果日志文件存在，则尝试复现
+		在Pager启动后，客户端尝试获取首个Page的时候，会先执行日志复现操作。
+		*/
+		if (sqliteOsFileExists(pPager->zJournal))
+		{
+			int rc, dummy;
 
-      /* Open the journal for exclusive access.  Return SQLITE_BUSY if
-      ** we cannot get exclusive access to the journal file.
-      **
-      ** Even though we will only be reading from the journal, not writing,
-      ** we have to open the journal for writing in order to obtain an
-      ** exclusive access lock.
-      ** 获取日志文件的读写锁
-      */
-      rc = sqliteOsOpenReadWrite(pPager->zJournal, &pPager->jfd, &dummy);
-      if (rc != SQLITE_OK)
-      {
-        rc = sqliteOsUnlock(&pPager->fd);
-        assert(rc == SQLITE_OK);
-        *ppPage = 0;
-        return SQLITE_BUSY;
-      }
-      // 设置日志文件打开标记
-      pPager->journalOpen = 1;
+			/* Get a write lock on the database
+			对数据库文件获取写锁
+			*/
+			rc = sqliteOsWriteLock(&pPager->fd);
+			if (rc != SQLITE_OK)
+			{
+				// 获取失败，释放所有的锁
+				rc = sqliteOsUnlock(&pPager->fd);
+				assert(rc == SQLITE_OK);
+				*ppPage = 0;
+				// 数据库文件已经被锁定
+				return SQLITE_BUSY;
+			}
+			pPager->state = SQLITE_WRITELOCK;
 
-      /* Playback and delete the journal.  Drop the database write
-      ** lock and reacquire the read lock.
-      ** 将日志中的修改都应用到数据库文件后将日志删除，并释放数据库文件的写锁，并重新尝试获取读锁
-      */
-      rc = pager_playback(pPager);
-      if (rc != SQLITE_OK)
-      {
-        return rc;
-      }
-    }
-    pPg = 0;
-  }
-  else
-  {
-    /* Search for page in cache */
-    // Pager的引用大于0，表示内存中已经存在同一文件的Pager。则尝试从内存中获取
-    pPg = pager_lookup(pPager, pgno);
-  }
+			/* Open the journal for exclusive access.  Return SQLITE_BUSY if
+			** we cannot get exclusive access to the journal file.
+			**
+			** Even though we will only be reading from the journal, not writing,
+			** we have to open the journal for writing in order to obtain an
+			** exclusive access lock.
+			** 获取日志文件的读写锁
+			*/
+			rc = sqliteOsOpenReadWrite(pPager->zJournal, &pPager->jfd, &dummy);
+			if (rc != SQLITE_OK)
+			{
+				rc = sqliteOsUnlock(&pPager->fd);
+				assert(rc == SQLITE_OK);
+				*ppPage = 0;
+				return SQLITE_BUSY;
+			}
+			// 设置日志文件打开标记
+			pPager->journalOpen = 1;
 
-  if (pPg == 0)
-  {
-    // 请求的Page不在缓存中
-    /* The requested page is not in the page cache. */
-    int h;
-    // 缓存未命中计数器
-    pPager->nMiss++;
-    if (pPager->nPage < pPager->mxPage || pPager->pFirst == 0)
-    {
-      /* Create a new page */
-      // 新建一个PgHdr,这里请求分配的内存空间大小为：PgHdr结构体大小+PAGE_SIZE+额外空间大小
-      pPg = malloc(sizeof(*pPg) + SQLITE_PAGE_SIZE + pPager->nExtra);
-      memset(pPg, 0, sizeof(*pPg) + SQLITE_PAGE_SIZE + pPager->nExtra);
-      if (pPg == 0)
-      {
-        // 内存分配失败
-        *ppPage = 0;
-        pager_unwritelock(pPager);
-        pPager->errMask |= PAGER_ERR_MEM;
-        return SQLITE_NOMEM;
-      }
+			/* Playback and delete the journal.  Drop the database write
+			** lock and reacquire the read lock.
+			** 将日志中的修改都应用到数据库文件后将日志删除，并释放数据库文件的写锁，并重新尝试获取读锁
+			*/
+			rc = pager_playback(pPager);
+			if (rc != SQLITE_OK)
+			{
+				return rc;
+			}
+		}
+		pPg = 0;
+	}
+	else
+	{
+		/* Search for page in cache */
+		// Pager的引用大于0，表示内存中已经存在同一文件的Pager。则尝试从内存中获取
+		pPg = pager_lookup(pPager, pgno);
+	}
 
-      // 将新建的Page放入总链表中
+	if (pPg == 0)
+	{
+		// 请求的Page不在缓存中
+		/* The requested page is not in the page cache. */
+		int h;
+		// 缓存未命中计数器
+		pPager->nMiss++;
+		if (pPager->nPage < pPager->mxPage || pPager->pFirst == 0)
+		{
+			// pager中还能创建新的page，则直接创建
+			/* Create a new page */
+			// 新建一个PgHdr,这里请求分配的内存空间大小为：PgHdr结构体大小+PAGE_SIZE+额外空间大小
+			pPg = malloc(sizeof(*pPg) + SQLITE_PAGE_SIZE + pPager->nExtra);
+			memset(pPg, 0, sizeof(*pPg) + SQLITE_PAGE_SIZE + pPager->nExtra);
+			if (pPg == 0)
+			{
+				// 内存分配失败
+				*ppPage = 0;
+				pager_unwritelock(pPager);
+				pPager->errMask |= PAGER_ERR_MEM;
+				return SQLITE_NOMEM;
+			}
 
-      // PgHdr的页面指向Pager
-      pPg->pPager = pPager;
-      // 如果是第一个Page，这里应该为NULL
-      pPg->pNextAll = pPager->pAll;
-      if (pPager->pAll)
-      {
-        // 将新创建的PgHdr放入链表头结点
-        pPager->pAll->pPrevAll = pPg;
-      }
-      // 新的PgHdr是头结点，所有prevAll为0
-      pPg->pPrevAll = 0;
-      // 设置Pager上的头结点
-      pPager->pAll = pPg;
-      // Page计数器递增
-      pPager->nPage++;
-    }
-    else
-    {
-      // 缓存中的Page已满，需要释放旧Page
-      /* Recycle an older page.  First locate the page to be recycled.
-      ** Try to find one that is not dirty and is near the head of
-      ** of the free list */
-      // 定位回收Page，尝试寻找一个没有修改且靠近空闲列表头部的。
-      // 这个Page可以减少相关操作，不需要有写入流程
+			// 将新建的Page放入总链表中
 
-      // 获取空闲链表头结点
-      pPg = pPager->pFirst;
-      while (pPg && pPg->dirty)
-      {
-        // 寻找没有被修改的PgHdr
-        pPg = pPg->pNextFree;
-      }
+			// PgHdr的页面指向Pager
+			pPg->pPager = pPager;
+			// 如果是第一个Page，这里应该为NULL
+			pPg->pNextAll = pPager->pAll;
+			if (pPager->pAll)
+			{
+				// 将新创建的PgHdr放入链表头结点
+				pPager->pAll->pPrevAll = pPg;
+			}
+			// 新的PgHdr是头结点，所有prevAll为0
+			pPg->pPrevAll = 0;
+			// 设置Pager上的头结点
+			pPager->pAll = pPg;
+			// Page计数器递增
+			pPager->nPage++;
+		}
+		else
+		{
+			// 缓存中的Page已满，需要释放旧Page
+			/* Recycle an older page.  First locate the page to be recycled.
+			** Try to find one that is not dirty and is near the head of
+			** of the free list */
+			// 定位回收Page，尝试寻找一个没有修改且靠近空闲列表头部的。
+			// 这个Page可以减少相关操作，不需要有写入流程
 
-      /* If we could not find a page that has not been used recently
-      ** and which is not dirty, then sync the journal and write all
-      ** dirty free pages into the database file, thus making them
-      ** clean pages and available for recycling.
-      **
-      ** 如果找不到最近没有被修改的空闲页面，则同步日志，并将所有脏的空闲页面写入数据库文件中。
-      ** 使他们成为干净的页面可供回收
-      **
-      ** We have to sync the journal before writing a page to the main
-      ** database.  But syncing is a very slow operation.  So after a
-      ** sync, it is best to write everything we can back to the main
-      ** database to minimize the risk of having to sync again in the
-      ** near future.  That is way we write all dirty pages after a
-      ** sync.
-      **
-      ** 在将page写入主数据库之前，我们必须同步日志。
-      ** 但是同步是一个非常缓慢的操作。因此，在同步之后，最好将我们可以写的内容全部写入到主数据库，以减少
-      ** 在将来需要再次同步的风险。
-      */
-      if (pPg == 0)
-      {
-        // 没有未被修改的空闲page
-        // 同步所有page
-        int rc = syncAllPages(pPager);
-        if (rc != 0)
-        {
-          sqlitepager_rollback(pPager);
-          *ppPage = 0;
-          return SQLITE_IOERR;
-        }
-        // 释放完成后，PgHdr就可以从空闲链表的头结点直接获取
-        pPg = pPager->pFirst;
-      }
-      assert(pPg->nRef == 0);
-      assert(pPg->dirty == 0);
+			// 获取空闲链表头结点
+			pPg = pPager->pFirst;
+			while (pPg && pPg->dirty)
+			{
+				// 寻找没有被修改的PgHdr
+				pPg = pPg->pNextFree;
+			}
 
-      /* Unlink the old page from the free list and the hash table
-      从空闲链表和哈希表中取消链接旧页面
-      */
+			/* If we could not find a page that has not been used recently
+			** and which is not dirty, then sync the journal and write all
+			** dirty free pages into the database file, thus making them
+			** clean pages and available for recycling.
+			**
+			** 如果找不到最近没有被修改的空闲页面，则同步日志，并将所有脏的空闲页面写入数据库文件中。
+			** 使他们成为干净的页面可供回收
+			**
+			** We have to sync the journal before writing a page to the main
+			** database.  But syncing is a very slow operation.  So after a
+			** sync, it is best to write everything we can back to the main
+			** database to minimize the risk of having to sync again in the
+			** near future.  That is way we write all dirty pages after a
+			** sync.
+			**
+			** 在将page写入主数据库之前，我们必须同步日志。
+			** 但是同步是一个非常缓慢的操作。因此，在同步之后，最好将我们可以写的内容全部写入到主数据库，以减少
+			** 在将来需要再次同步的风险。
+			*/
+			if (pPg == 0)
+			{
+				// 没有未被修改的空闲page
+				// 同步所有page
+				int rc = syncAllPages(pPager);
+				if (rc != 0)
+				{
+					sqlitepager_rollback(pPager);
+					*ppPage = 0;
+					return SQLITE_IOERR;
+				}
+				// 释放完成后，PgHdr就可以从空闲链表的头结点直接获取
+				pPg = pPager->pFirst;
+			}
+			assert(pPg->nRef == 0);
+			assert(pPg->dirty == 0);
 
-      // 这一段代码就是从双向链表中删除某个节点是的修改前后节点指针的逻辑
-      if (pPg->pPrevFree)
-      {
-        // 如果分配的PgHdr的前缀空闲节点存在，则将前缀空闲节点的next指针指向自身的next空闲节点
-        pPg->pPrevFree->pNextFree = pPg->pNextFree;
-      }
-      else
-      {
-        // PgHdr位于空闲链表头结点
-        assert(pPager->pFirst == pPg);
-        // 空闲链表头结点指针指向next
-        pPager->pFirst = pPg->pNextFree;
-      }
+			/* Unlink the old page from the free list and the hash table
+			从空闲链表和哈希表中取消链接旧页面
+			*/
 
+			// 这一段代码就是从双向链表中删除某个节点是的修改前后节点指针的逻辑
+			if (pPg->pPrevFree)
+			{
+				// 如果分配的PgHdr的前缀空闲节点存在，则将前缀空闲节点的next指针指向自身的next空闲节点
+				pPg->pPrevFree->pNextFree = pPg->pNextFree;
+			}
+			else
+			{
+				// PgHdr位于空闲链表头结点
+				assert(pPager->pFirst == pPg);
+				// 空闲链表头结点指针指向next
+				pPager->pFirst = pPg->pNextFree;
+			}
 
-      // 同上，这里是修改next节点的prev指针指向
-      if (pPg->pNextFree)
-      {
-        pPg->pNextFree->pPrevFree = pPg->pPrevFree;
-      }
-      else
-      {
-        assert(pPager->pLast == pPg);
-        pPager->pLast = pPg->pPrevFree;
-      }
+			// 同上，这里是修改next节点的prev指针指向
+			if (pPg->pNextFree)
+			{
+				pPg->pNextFree->pPrevFree = pPg->pPrevFree;
+			}
+			else
+			{
+				assert(pPager->pLast == pPg);
+				pPager->pLast = pPg->pPrevFree;
+			}
 
-      // PgHdr已被移出空闲链表，两个指针置为0
-      pPg->pNextFree = pPg->pPrevFree = 0;
+			// PgHdr已被移出空闲链表，两个指针置为0
+			pPg->pNextFree = pPg->pPrevFree = 0;
 
+			// 哈希链表也跟双向链表删除一个逻辑
+			if (pPg->pNextHash)
+			{
+				pPg->pNextHash->pPrevHash = pPg->pPrevHash;
+			}
+			if (pPg->pPrevHash)
+			{
+				pPg->pPrevHash->pNextHash = pPg->pNextHash;
+			}
+			else
+			{
+				// 如果这个PgHdr是哈希链表的头结点, 则将Page中的Hash数组的值修改为他的next哈希节点
+				// Page中的aHash保存的是哈希值相同的空闲节点
+				h = pager_hash(pPg->pgno);
+				assert(pPager->aHash[h] == pPg);
+				pPager->aHash[h] = pPg->pNextHash;
+			}
+			// 移除哈希链表
+			pPg->pNextHash = pPg->pPrevHash = 0;
+			// LRU计数器递增
+			pPager->nOvfl++;
+		}
 
-      // 哈希链表也跟双向链表删除一个逻辑
-      if (pPg->pNextHash)
-      {
-        pPg->pNextHash->pPrevHash = pPg->pPrevHash;
-      }
-      if (pPg->pPrevHash)
-      {
-        pPg->pPrevHash->pNextHash = pPg->pNextHash;
-      }
-      else
-      {
-        // 如果这个PgHdr是哈希链表的头结点, 则将Page中的Hash数组的值修改为他的next哈希节点
-        // Page中的aHash保存的是哈希值相同的空闲节点
-        h = pager_hash(pPg->pgno);
-        assert(pPager->aHash[h] == pPg);
-        pPager->aHash[h] = pPg->pNextHash;
-      }
-      // 移除哈希链表
-      pPg->pNextHash = pPg->pPrevHash = 0;
-      // LRU计数器递增
-      pPager->nOvfl++;
-    }
+		// 给这个空闲页面赋予pgno
+		pPg->pgno = pgno;
+		// 如果pager中有某一页已被写入到日志中，并且该page的编号小于数据库page的数量
+		if (pPager->aInJournal && (int)pgno <= pPager->origDbSize)
+		{
+			// 找到这个pgno对应的标志位，并赋值给Page
+			pPg->inJournal = (pPager->aInJournal[pgno / 8] & (1 << (pgno & 7))) != 0;
+		}
+		else
+		{
+			// 否则这个Page的标志位为0表示未存入journal文件
+			pPg->inJournal = 0;
+		}
 
-    // 给这个空闲页面赋予pgno
-    pPg->pgno = pgno;
-    // 如果pager中有某一页已被写入到日志中，并且该page的编号小于数据库page的数量
-    if( pPager->aInJournal && (int)pgno<=pPager->origDbSize ){
-      // 找到这个pgno对应的标志位，并赋值给Page
-      pPg->inJournal = (pPager->aInJournal[pgno/8] & (1<<(pgno&7)))!=0;
-    }else{
-      // 否则这个Page的标志位为0表示未存入journal文件
-      pPg->inJournal = 0;
-    }
+		// 同上，检查该pgno是否已被写入checkpoint文件
+		if (pPager->aInCkpt && (int)pgno <= pPager->ckptSize)
+		{
+			// 如果有可能，则将其从位图中提取出来
+			pPg->inCkpt = (pPager->aInCkpt[pgno / 8] & (1 << (pgno & 7))) != 0;
+		}
+		else
+		{
+			// 否则该page属于新建page，默认为未写入
+			pPg->inCkpt = 0;
+		}
 
-    // 同上，检查该pgno是否已被写入checkpoint文件
-    if( pPager->aInCkpt && (int)pgno<=pPager->ckptSize ){
-      // 如果有可能，则将其从位图中提取出来
-      pPg->inCkpt = (pPager->aInCkpt[pgno/8] & (1<<(pgno&7)))!=0;
-    }else{
-      // 否则该page属于新建page，默认为未写入
-      pPg->inCkpt = 0;
-    }
+		// 新建的PgHdr未被修改，且在get的时候才会创建，因此引用计数为1
+		pPg->dirty = 0;
+		pPg->nRef = 1;
+		REFINFO(pPg);
+		// Page的计数器也要加1
+		pPager->nRef++;
 
-    // 新建的PgHdr未被修改，且在get的时候才会创建，因此引用计数为1
-    pPg->dirty = 0;
-    pPg->nRef = 1;
-    REFINFO(pPg);
-    // Page的计数器也要加1
-    pPager->nRef++;
-    // 求要获取的Page number的哈希值
-    // 将新的PgHdr放入哈希链表的头结点
-    h = pager_hash(pgno);
-    pPg->pNextHash = pPager->aHash[h];
-    pPager->aHash[h] = pPg;
-    if (pPg->pNextHash)
-    {
-      // 确保aHash[h]是头结点
-      assert(pPg->pNextHash->pPrevHash == 0);
-      pPg->pNextHash->pPrevHash = pPg;
-    }
+		// 求要获取的Page number的哈希值
+		// 将新的PgHdr放入哈希链表的头结点
+		h = pager_hash(pgno);
+		pPg->pNextHash = pPager->aHash[h];
+		pPager->aHash[h] = pPg;
+		if (pPg->pNextHash)
+		{
+			// 确保aHash[h]是头结点
+			assert(pPg->pNextHash->pPrevHash == 0);
+			pPg->pNextHash->pPrevHash = pPg;
+		}
 
-    // 该文件在程序运行过程中的第一个Page,需要获取数据库文件中的page数量
-    if (pPager->dbSize < 0)
-      sqlitepager_pagecount(pPager);
-    if (pPager->dbSize < (int)pgno)
-    {
-      // 数据库文件page数量小于page number, 这是一个新的page
-      memset(PGHDR_TO_DATA(pPg), 0, SQLITE_PAGE_SIZE);
-    }
-    else
-    {
-      // 从数据库文件中读取page内容
-      int rc;
-      sqliteOsSeek(&pPager->fd, (pgno - 1) * SQLITE_PAGE_SIZE);
-      rc = sqliteOsRead(&pPager->fd, PGHDR_TO_DATA(pPg), SQLITE_PAGE_SIZE);
-      if (rc != SQLITE_OK)
-      {
-        return rc;
-      }
-    }
+		// 该文件在程序运行过程中的第一个Page,需要获取数据库文件中的page数量
+		if (pPager->dbSize < 0)
+			sqlitepager_pagecount(pPager);
+		if (pPager->dbSize < (int)pgno)
+		{
+			// 数据库文件page数量小于page number, 这是一个新的page
+			memset(PGHDR_TO_DATA(pPg), 0, SQLITE_PAGE_SIZE);
+		}
+		else
+		{
+			// 从数据库文件中读取page内容
+			int rc;
+			sqliteOsSeek(&pPager->fd, (pgno - 1) * SQLITE_PAGE_SIZE);
+			rc = sqliteOsRead(&pPager->fd, PGHDR_TO_DATA(pPg), SQLITE_PAGE_SIZE);
+			if (rc != SQLITE_OK)
+			{
+				return rc;
+			}
+		}
 
-    // 如果page中存在额外数据空间，则将page后的额外数据内存块初始化为0
-    if (pPager->nExtra > 0)
-    {
-      memset(PGHDR_TO_EXTRA(pPg), 0, pPager->nExtra);
-    }
-  }
-  else
-  {
-    /* The requested page is in the page cache. */
-    // 请求的page在内存中，缓存命中计数器递增
-    pPager->nHit++;
-    // 引用计数递增
-    page_ref(pPg);
-  }
-  // 指针指向该Page的数据位
-  *ppPage = PGHDR_TO_DATA(pPg);
-  return SQLITE_OK;
+		// 如果page中存在额外数据空间，则将page后的额外数据内存块初始化为0
+		if (pPager->nExtra > 0)
+		{
+			memset(PGHDR_TO_EXTRA(pPg), 0, pPager->nExtra);
+		}
+	}
+	else
+	{
+		/* The requested page is in the page cache. */
+		// 请求的page在内存中，缓存命中计数器递增
+		pPager->nHit++;
+		// 引用计数递增
+		page_ref(pPg);
+	}
+	// 指针指向该Page的数据位
+	*ppPage = PGHDR_TO_DATA(pPg);
+	return SQLITE_OK;
 }
 
 /*
@@ -1247,27 +1255,27 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage)
 */
 void *sqlitepager_lookup(Pager *pPager, Pgno pgno)
 {
-  PgHdr *pPg;
+	PgHdr *pPg;
 
-  /* Make sure we have not hit any critical errors.
-   */
-  if (pPager == 0 || pgno == 0)
-  {
-    return 0;
-  }
-  if (pPager->errMask & ~(PAGER_ERR_FULL))
-  {
-    return 0;
-  }
-  if (pPager->nRef == 0)
-  {
-    return 0;
-  }
-  pPg = pager_lookup(pPager, pgno);
-  if (pPg == 0)
-    return 0;
-  page_ref(pPg);
-  return PGHDR_TO_DATA(pPg);
+	/* Make sure we have not hit any critical errors.
+	 */
+	if (pPager == 0 || pgno == 0)
+	{
+		return 0;
+	}
+	if (pPager->errMask & ~(PAGER_ERR_FULL))
+	{
+		return 0;
+	}
+	if (pPager->nRef == 0)
+	{
+		return 0;
+	}
+	pPg = pager_lookup(pPager, pgno);
+	if (pPg == 0)
+		return 0;
+	page_ref(pPg);
+	return PGHDR_TO_DATA(pPg);
 }
 
 /*
@@ -1280,49 +1288,49 @@ void *sqlitepager_lookup(Pager *pPager, Pgno pgno)
 */
 int sqlitepager_unref(void *pData)
 {
-  PgHdr *pPg;
+	PgHdr *pPg;
 
-  /* Decrement the reference count for this page
-   */
-  pPg = DATA_TO_PGHDR(pData);
-  assert(pPg->nRef > 0);
-  pPg->nRef--;
-  REFINFO(pPg);
+	/* Decrement the reference count for this page
+	 */
+	pPg = DATA_TO_PGHDR(pData);
+	assert(pPg->nRef > 0);
+	pPg->nRef--;
+	REFINFO(pPg);
 
-  /* When the number of references to a page reach 0, call the
-  ** destructor and add the page to the freelist.
-  */
-  if (pPg->nRef == 0)
-  {
-    Pager *pPager;
-    pPager = pPg->pPager;
-    pPg->pNextFree = 0;
-    pPg->pPrevFree = pPager->pLast;
-    pPager->pLast = pPg;
-    if (pPg->pPrevFree)
-    {
-      pPg->pPrevFree->pNextFree = pPg;
-    }
-    else
-    {
-      pPager->pFirst = pPg;
-    }
-    if (pPager->xDestructor)
-    {
-      pPager->xDestructor(pData);
-    }
+	/* When the number of references to a page reach 0, call the
+	** destructor and add the page to the freelist.
+	*/
+	if (pPg->nRef == 0)
+	{
+		Pager *pPager;
+		pPager = pPg->pPager;
+		pPg->pNextFree = 0;
+		pPg->pPrevFree = pPager->pLast;
+		pPager->pLast = pPg;
+		if (pPg->pPrevFree)
+		{
+			pPg->pPrevFree->pNextFree = pPg;
+		}
+		else
+		{
+			pPager->pFirst = pPg;
+		}
+		if (pPager->xDestructor)
+		{
+			pPager->xDestructor(pData);
+		}
 
-    /* When all pages reach the freelist, drop the read lock from
-    ** the database file.
-    */
-    pPager->nRef--;
-    assert(pPager->nRef >= 0);
-    if (pPager->nRef == 0)
-    {
-      pager_reset(pPager);
-    }
-  }
-  return SQLITE_OK;
+		/* When all pages reach the freelist, drop the read lock from
+		** the database file.
+		*/
+		pPager->nRef--;
+		assert(pPager->nRef >= 0);
+		if (pPager->nRef == 0)
+		{
+			pager_reset(pPager);
+		}
+	}
+	return SQLITE_OK;
 }
 
 /*
@@ -1346,73 +1354,74 @@ int sqlitepager_unref(void *pData)
 */
 int sqlitepager_begin(void *pData)
 {
-  // 根据数据指针获取拥有这个数据的Page指针
-  PgHdr *pPg = DATA_TO_PGHDR(pData);
-  // 获取Pager指针
-  Pager *pPager = pPg->pPager;
-  int rc = SQLITE_OK;
-  assert(pPg->nRef > 0);
-  assert(pPager->state != SQLITE_UNLOCK);
-  if (pPager->state == SQLITE_READLOCK)
-  {
-    // 必须要得到改Page的读锁
-    // 如果page拥有读锁,则尝试升格为写锁
-    assert(pPager->aInJournal == 0);
-    rc = sqliteOsWriteLock(&pPager->fd);
-    if (rc != SQLITE_OK)
-    {
-      return rc;
-    }
-    // 给Pager的AInJournal开辟一块内存空间,空间大小跟当前数据库中Page数量相关
-    pPager->aInJournal = malloc(pPager->dbSize / 8 + 1);
-    memset(pPager->aInJournal, 0, pPager->dbSize / 8 + 1);
+	// 根据数据指针获取拥有这个数据的Page指针
+	PgHdr *pPg = DATA_TO_PGHDR(pData);
+	// 获取Pager指针
+	Pager *pPager = pPg->pPager;
+	int rc = SQLITE_OK;
+	assert(pPg->nRef > 0);
+	assert(pPager->state != SQLITE_UNLOCK);
 
-    if (pPager->aInJournal == 0)
-    {
-      // 开辟内存失败
-      sqliteOsReadLock(&pPager->fd);
-      return SQLITE_NOMEM;
-    }
-    // 为此进程打开一个独占的可供读写的文件
-    rc = sqliteOsOpenExclusive(pPager->zJournal, &pPager->jfd, 0);
-    if (rc != SQLITE_OK)
-    {
-      // 文件打开失败，释放aInJournal的内存空间，并释放写锁
-      sqliteFree(pPager->aInJournal);
-      pPager->aInJournal = 0;
-      sqliteOsReadLock(&pPager->fd);
-      return SQLITE_CANTOPEN;
-    }
+	if (pPager->state == SQLITE_READLOCK)
+	{
+		// 必须要得到改Page的读锁
+		// 如果page拥有读锁,则尝试升格为写锁
+		assert(pPager->aInJournal == 0);
+		rc = sqliteOsWriteLock(&pPager->fd);
+		if (rc != SQLITE_OK)
+		{
+			return rc;
+		}
+		// 给Pager的AInJournal开辟一块内存空间,空间大小跟当前数据库中Page数量相关
+		pPager->aInJournal = malloc(pPager->dbSize / 8 + 1);
+		memset(pPager->aInJournal, 0, pPager->dbSize / 8 + 1);
 
-    /**
-     * 这里打开的文件是zJournal,开启事务期间对数据库的写入之前不会将日志刷入磁盘,
-     * Page不是脏页,状态修改为写锁
-     */
-    pPager->journalOpen = 1;
-    pPager->needSync = 0;
-    pPager->dirtyFile = 0;
-    pPager->state = SQLITE_WRITELOCK;
-    // 更新磁盘上所有Page的数量
-    sqlitepager_pagecount(pPager);
-    // 将当前磁盘上Page的数量额外记录
-    pPager->origDbSize = pPager->dbSize;
-    // 写入日志文件的magic
-    // 此处创建回滚用的备份文件
-    rc = sqliteOsWrite(&pPager->jfd, aJournalMagic, sizeof(aJournalMagic));
-    if (rc == SQLITE_OK)
-    {
-      // 将数据库中Page数量保存在日志文件中
-      rc = sqliteOsWrite(&pPager->jfd, &pPager->dbSize, sizeof(Pgno));
-    }
-    if (rc != SQLITE_OK)
-    {
-      // 写入失败,释放锁
-      rc = pager_unwritelock(pPager);
-      if (rc == SQLITE_OK)
-        rc = SQLITE_FULL;
-    }
-  }
-  return rc;
+		if (pPager->aInJournal == 0)
+		{
+			// 开辟内存失败
+			sqliteOsReadLock(&pPager->fd);
+			return SQLITE_NOMEM;
+		}
+		// 为此进程打开一个独占的可供读写的文件
+		rc = sqliteOsOpenExclusive(pPager->zJournal, &pPager->jfd, 0);
+		if (rc != SQLITE_OK)
+		{
+			// 文件打开失败，释放aInJournal的内存空间，并释放写锁
+			sqliteFree(pPager->aInJournal);
+			pPager->aInJournal = 0;
+			sqliteOsReadLock(&pPager->fd);
+			return SQLITE_CANTOPEN;
+		}
+
+		/**
+		 * 这里打开的文件是zJournal,开启事务期间对数据库的写入之前不会将日志刷入磁盘,
+		 * Page不是脏页,状态修改为写锁
+		 */
+		pPager->journalOpen = 1;
+		pPager->needSync = 0;
+		pPager->dirtyFile = 0;
+		pPager->state = SQLITE_WRITELOCK;
+		// 更新磁盘上所有Page的数量
+		sqlitepager_pagecount(pPager);
+		// 将当前磁盘上Page的数量额外记录
+		pPager->origDbSize = pPager->dbSize;
+		// 写入日志文件的magic
+		// 此处创建回滚用的备份文件
+		rc = sqliteOsWrite(&pPager->jfd, aJournalMagic, sizeof(aJournalMagic));
+		if (rc == SQLITE_OK)
+		{
+			// 将数据库中Page数量保存在日志文件中
+			rc = sqliteOsWrite(&pPager->jfd, &pPager->dbSize, sizeof(Pgno));
+		}
+		if (rc != SQLITE_OK)
+		{
+			// 写入失败,释放锁
+			rc = pager_unwritelock(pPager);
+			if (rc == SQLITE_OK)
+				rc = SQLITE_FULL;
+		}
+	}
+	return rc;
 }
 
 /*
@@ -1442,122 +1451,122 @@ int sqlitepager_begin(void *pData)
 */
 int sqlitepager_write(void *pData)
 {
-  // 从data指针获取页面指针
-  PgHdr *pPg = DATA_TO_PGHDR(pData);
-  // 从页面指针获取页面管理指针
-  Pager *pPager = pPg->pPager;
-  int rc = SQLITE_OK;
+	// 从data指针获取页面指针
+	PgHdr *pPg = DATA_TO_PGHDR(pData);
+	// 从页面指针获取页面管理指针
+	Pager *pPager = pPg->pPager;
+	int rc = SQLITE_OK;
 
-  /* Check for errors
-  检查写入前是否发生异常
-  */
-  if (pPager->errMask)
-  {
-    return pager_errcode(pPager);
-  }
-  if (pPager->readOnly)
-  {
-    // 如果是只读状态，则无法写入
-    return SQLITE_PERM;
-  }
+	/* Check for errors
+	检查写入前是否发生异常
+	*/
+	if (pPager->errMask)
+	{
+		return pager_errcode(pPager);
+	}
+	if (pPager->readOnly)
+	{
+		// 如果是只读状态，则无法写入
+		return SQLITE_PERM;
+	}
 
-  /* Mark the page as dirty.  If the page has already been written
-  ** to the journal then we can return right away.
-  ** 将Page修改为脏页，如果页面已经写入日志，那么我们可以立即返回
-  */
-  pPg->dirty = 1;
-  // 该Page已被写入到日志文件中，且该Page已被写入到checkpoint文件中或者尚未有其他线程在写入检查点文件
-  if (pPg->inJournal && (pPg->inCkpt || pPager->ckptInUse == 0))
-  {
-    // 该数据库文件已被修改，可以直接被写入
-    pPager->dirtyFile = 1;
-    return SQLITE_OK;
-  }
+	/* Mark the page as dirty.  If the page has already been written
+	** to the journal then we can return right away.
+	** 将Page修改为脏页，如果页面已经写入日志，那么我们可以立即返回
+	*/
+	pPg->dirty = 1;
+	// 该Page已被写入到日志文件中，且该Page已被写入到checkpoint文件中或者尚未有其他线程在写入检查点文件
+	if (pPg->inJournal && (pPg->inCkpt || pPager->ckptInUse == 0))
+	{
+		// 该数据库文件已被修改，可以直接被写入
+		pPager->dirtyFile = 1;
+		return SQLITE_OK;
+	}
 
-  /* If we get this far, it means that the page needs to be
-  ** written to the transaction journal or the ckeckpoint journal
-  ** or both.
-  ** 如果走到这一步，意味着Page需要写入事务日志或检查点日志或两者都要有
-  **
-  ** First check to see that the transaction journal exists and
-  ** create it if it does not.
-  ** 首先检查事务日志是否存在，如果不存在则创建
-  */
-  assert(pPager->state != SQLITE_UNLOCK);
-  rc = sqlitepager_begin(pData);
-  pPager->dirtyFile = 1;
-  if (rc != SQLITE_OK)
-    return rc;
-  assert(pPager->state == SQLITE_WRITELOCK);
-  assert(pPager->journalOpen);
+	/* If we get this far, it means that the page needs to be
+	** written to the transaction journal or the ckeckpoint journal
+	** or both.
+	** 如果走到这一步，意味着Page需要写入事务日志或检查点日志或两者都要有
+	**
+	** First check to see that the transaction journal exists and
+	** create it if it does not.
+	** 首先检查事务日志是否存在，如果不存在则创建
+	*/
+	assert(pPager->state != SQLITE_UNLOCK);
+	rc = sqlitepager_begin(pData);
+	pPager->dirtyFile = 1;
+	if (rc != SQLITE_OK)
+		return rc;
+	assert(pPager->state == SQLITE_WRITELOCK);
+	assert(pPager->journalOpen);
 
-  /* The transaction journal now exists and we have a write lock on the
-  ** main database file.  Write the current page to the transaction
-  ** journal if it is not there already.
-  ** 事务日志现在存在并且我们对数据库文件拥有写锁.
-  ** 如果当前页面不存在，则将当前页面写入事务日志
-  */
-  if (!pPg->inJournal && (int)pPg->pgno <= pPager->origDbSize)
-  {
-    // 事务开启后在事务文件中记录下当前page的id
-    rc = sqliteOsWrite(&pPager->jfd, &pPg->pgno, sizeof(Pgno));
-    if (rc == SQLITE_OK)
-    {
-      // pageId写入到事务文件中后，将Page本次要写入的数据内容写入到journal文件中
-      rc = sqliteOsWrite(&pPager->jfd, pData, SQLITE_PAGE_SIZE);
-    }
-    if (rc != SQLITE_OK)
-    {
-      // 内容写入失败，则回滚
-      sqlitepager_rollback(pPager);
-      pPager->errMask |= PAGER_ERR_FULL;
-      return rc;
-    }
-    assert(pPager->aInJournal != 0);
+	/* The transaction journal now exists and we have a write lock on the
+	** main database file.  Write the current page to the transaction
+	** journal if it is not there already.
+	** 事务日志现在存在并且我们对数据库文件拥有写锁.
+	** 如果当前页面不存在，则将当前页面写入事务日志
+	*/
+	if (!pPg->inJournal && (int)pPg->pgno <= pPager->origDbSize)
+	{
+		// 事务开启后在事务文件中记录下当前page的id
+		rc = sqliteOsWrite(&pPager->jfd, &pPg->pgno, sizeof(Pgno));
+		if (rc == SQLITE_OK)
+		{
+			// pageId写入到事务文件中后，将Page本次要写入的数据内容写入到journal文件中
+			rc = sqliteOsWrite(&pPager->jfd, pData, SQLITE_PAGE_SIZE);
+		}
+		if (rc != SQLITE_OK)
+		{
+			// 内容写入失败，则回滚
+			sqlitepager_rollback(pPager);
+			pPager->errMask |= PAGER_ERR_FULL;
+			return rc;
+		}
+		assert(pPager->aInJournal != 0);
 
-    /**
-     * 1 << (pPg->pgno&7): 截取这个Page的id最低3位,将1往左移动这个位
-     * aInJournal[pPg->pgno/8]: ?
-     */
-    pPager->aInJournal[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
-    pPager->needSync = !pPager->noSync;
-    pPg->inJournal = 1;
-    if (pPager->ckptInUse)
-    {
-      pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
-      pPg->inCkpt = 1;
-    }
-  }
+		/**
+		 * 1 << (pPg->pgno&7): 截取这个Page的id最低3位,将1往左移动这个位
+		 * aInJournal[pPg->pgno/8]: ?
+		 */
+		pPager->aInJournal[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
+		pPager->needSync = !pPager->noSync;
+		pPg->inJournal = 1;
+		if (pPager->ckptInUse)
+		{
+			pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
+			pPg->inCkpt = 1;
+		}
+	}
 
-  /* If the checkpoint journal is open and the page is not in it,
-  ** then write the current page to the checkpoint journal.
-  */
-  if (pPager->ckptInUse && !pPg->inCkpt && (int)pPg->pgno <= pPager->ckptSize)
-  {
-    assert(pPg->inJournal || (int)pPg->pgno > pPager->origDbSize);
-    rc = sqliteOsWrite(&pPager->cpfd, &pPg->pgno, sizeof(Pgno));
-    if (rc == SQLITE_OK)
-    {
-      rc = sqliteOsWrite(&pPager->cpfd, pData, SQLITE_PAGE_SIZE);
-    }
-    if (rc != SQLITE_OK)
-    {
-      sqlitepager_rollback(pPager);
-      pPager->errMask |= PAGER_ERR_FULL;
-      return rc;
-    }
-    assert(pPager->aInCkpt != 0);
-    pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
-    pPg->inCkpt = 1;
-  }
+	/* If the checkpoint journal is open and the page is not in it,
+	** then write the current page to the checkpoint journal.
+	*/
+	if (pPager->ckptInUse && !pPg->inCkpt && (int)pPg->pgno <= pPager->ckptSize)
+	{
+		assert(pPg->inJournal || (int)pPg->pgno > pPager->origDbSize);
+		rc = sqliteOsWrite(&pPager->cpfd, &pPg->pgno, sizeof(Pgno));
+		if (rc == SQLITE_OK)
+		{
+			rc = sqliteOsWrite(&pPager->cpfd, pData, SQLITE_PAGE_SIZE);
+		}
+		if (rc != SQLITE_OK)
+		{
+			sqlitepager_rollback(pPager);
+			pPager->errMask |= PAGER_ERR_FULL;
+			return rc;
+		}
+		assert(pPager->aInCkpt != 0);
+		pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
+		pPg->inCkpt = 1;
+	}
 
-  /* Update the database size and return.
-   */
-  if (pPager->dbSize < (int)pPg->pgno)
-  {
-    pPager->dbSize = pPg->pgno;
-  }
-  return rc;
+	/* Update the database size and return.
+	 */
+	if (pPager->dbSize < (int)pPg->pgno)
+	{
+		pPager->dbSize = pPg->pgno;
+	}
+	return rc;
 }
 
 /*
@@ -1567,8 +1576,8 @@ int sqlitepager_write(void *pData)
 */
 int sqlitepager_iswriteable(void *pData)
 {
-  PgHdr *pPg = DATA_TO_PGHDR(pData);
-  return pPg->dirty;
+	PgHdr *pPg = DATA_TO_PGHDR(pData);
+	return pPg->dirty;
 }
 
 /*
@@ -1586,12 +1595,12 @@ int sqlitepager_iswriteable(void *pData)
 */
 void sqlitepager_dont_write(Pager *pPager, Pgno pgno)
 {
-  PgHdr *pPg;
-  pPg = pager_lookup(pPager, pgno);
-  if (pPg && pPg->dirty)
-  {
-    pPg->dirty = 0;
-  }
+	PgHdr *pPg;
+	pPg = pager_lookup(pPager, pgno);
+	if (pPg && pPg->dirty)
+	{
+		pPg->dirty = 0;
+	}
 }
 
 /*
@@ -1602,29 +1611,29 @@ void sqlitepager_dont_write(Pager *pPager, Pgno pgno)
 */
 void sqlitepager_dont_rollback(void *pData)
 {
-  PgHdr *pPg = DATA_TO_PGHDR(pData);
-  Pager *pPager = pPg->pPager;
+	PgHdr *pPg = DATA_TO_PGHDR(pData);
+	Pager *pPager = pPg->pPager;
 
-  if (pPager->state != SQLITE_WRITELOCK || pPager->journalOpen == 0)
-    return;
-  if (!pPg->inJournal && (int)pPg->pgno <= pPager->origDbSize)
-  {
-    assert(pPager->aInJournal != 0);
-    pPager->aInJournal[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
-    pPg->inJournal = 1;
-    if (pPager->ckptInUse)
-    {
-      pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
-      pPg->inCkpt = 1;
-    }
-  }
-  if (pPager->ckptInUse && !pPg->inCkpt && (int)pPg->pgno <= pPager->ckptSize)
-  {
-    assert(pPg->inJournal || (int)pPg->pgno > pPager->origDbSize);
-    assert(pPager->aInCkpt != 0);
-    pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
-    pPg->inCkpt = 1;
-  }
+	if (pPager->state != SQLITE_WRITELOCK || pPager->journalOpen == 0)
+		return;
+	if (!pPg->inJournal && (int)pPg->pgno <= pPager->origDbSize)
+	{
+		assert(pPager->aInJournal != 0);
+		pPager->aInJournal[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
+		pPg->inJournal = 1;
+		if (pPager->ckptInUse)
+		{
+			pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
+			pPg->inCkpt = 1;
+		}
+	}
+	if (pPager->ckptInUse && !pPg->inCkpt && (int)pPg->pgno <= pPager->ckptSize)
+	{
+		assert(pPg->inJournal || (int)pPg->pgno > pPager->origDbSize);
+		assert(pPager->aInCkpt != 0);
+		pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
+		pPg->inCkpt = 1;
+	}
 }
 
 /*
@@ -1638,78 +1647,82 @@ void sqlitepager_dont_rollback(void *pData)
 */
 int sqlitepager_commit(Pager *pPager)
 {
-  int rc;
-  PgHdr *pPg;
+	int rc;
+	PgHdr *pPg;
 
-  if (pPager->errMask == PAGER_ERR_FULL)
-  {
-    // 写入时发生异常，回滚数据
-    rc = sqlitepager_rollback(pPager);
-    if (rc == SQLITE_OK)
-      rc = SQLITE_FULL;
-    return rc;
-  }
-  if (pPager->errMask != 0)
-  {
-    // 出现出写入异常外的其他异常
-    rc = pager_errcode(pPager);
-    return rc;
-  }
-  if (pPager->state != SQLITE_WRITELOCK)
-  {
-    return SQLITE_ERROR;
-  }
-  assert(pPager->journalOpen);
-  if (pPager->dirtyFile == 0)
-  {
-    /* Exit early (without doing the time-consuming sqliteOsSync() calls)
-    ** if there have been no changes to the database file. */
-    // 如果文件没有被修改，则不需要进行写入
-    // 释放数据库文件的写锁并获取读锁，同时删除日志文件
-    rc = pager_unwritelock(pPager);
-    pPager->dbSize = -1;
-    return rc;
-  }
-  if (pPager->needSync && sqliteOsSync(&pPager->jfd) != SQLITE_OK)
-  {
-    // 开始写入先必须将日志刷入磁盘
-    // 如果Page需要同步刷入磁盘，且将日志文件缓存刷入磁盘失败后进行数据回滚
-    goto commit_abort;
-  }
-  for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
-  {
-    // 遍历整个链表
-    if (pPg->dirty == 0)
-      continue;
-    // 获取数据头指针
-    rc = sqliteOsSeek(&pPager->fd, (pPg->pgno - 1) * SQLITE_PAGE_SIZE);
-    if (rc != SQLITE_OK)
-      goto commit_abort;
-    // 将数据写入数据库文件
-    rc = sqliteOsWrite(&pPager->fd, PGHDR_TO_DATA(pPg), SQLITE_PAGE_SIZE);
-    if (rc != SQLITE_OK)
-      goto commit_abort;
-  }
-  if (!pPager->noSync && sqliteOsSync(&pPager->fd) != SQLITE_OK)
-  {
-    // 写入完成之后就立刻将修改刷入磁盘
-    // 如果写入日志时不需要同步写入且在将数据库文件强制刷入磁盘失败
-    goto commit_abort;
-  }
-  rc = pager_unwritelock(pPager);
-  pPager->dbSize = -1;
-  return rc;
+	if (pPager->errMask == PAGER_ERR_FULL)
+	{
+		// 写入时发生异常，回滚数据
+		rc = sqlitepager_rollback(pPager);
+		if (rc == SQLITE_OK)
+			rc = SQLITE_FULL;
+		return rc;
+	}
+	if (pPager->errMask != 0)
+	{
+		// 出现出写入异常外的其他异常
+		rc = pager_errcode(pPager);
+		return rc;
+	}
+	if (pPager->state != SQLITE_WRITELOCK)
+	{
+		return SQLITE_ERROR;
+	}
 
-  /* Jump here if anything goes wrong during the commit process.
-  如果写入出现错误，进入到这里进行数据的回滚
-  */
+	assert(pPager->journalOpen);
+	if (pPager->dirtyFile == 0)
+	{
+		/* Exit early (without doing the time-consuming sqliteOsSync() calls)
+		** if there have been no changes to the database file. */
+		// 如果文件没有被修改，则不需要进行写入
+		// 释放数据库文件的写锁并获取读锁，同时删除日志文件
+		rc = pager_unwritelock(pPager);
+		pPager->dbSize = -1;
+		return rc;
+	}
+
+	if (pPager->needSync && sqliteOsSync(&pPager->jfd) != SQLITE_OK)
+	{
+		// 开始写入先必须将日志刷入磁盘
+		// 如果Page需要同步刷入磁盘，且将日志文件缓存刷入磁盘失败后进行数据回滚
+		goto commit_abort;
+	}
+
+	for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
+	{
+		// 遍历整个链表
+		if (pPg->dirty == 0)
+			continue;
+
+		// 获取数据头指针
+		rc = sqliteOsSeek(&pPager->fd, (pPg->pgno - 1) * SQLITE_PAGE_SIZE);
+		if (rc != SQLITE_OK)
+			goto commit_abort;
+		// 将数据写入数据库文件
+		rc = sqliteOsWrite(&pPager->fd, PGHDR_TO_DATA(pPg), SQLITE_PAGE_SIZE);
+		if (rc != SQLITE_OK)
+			goto commit_abort;
+	}
+	if (!pPager->noSync && sqliteOsSync(&pPager->fd) != SQLITE_OK)
+	{
+		// 写入完成之后就立刻将修改刷入磁盘
+		// 如果写入日志时不需要同步写入且在将数据库文件强制刷入磁盘失败
+		goto commit_abort;
+	}
+	rc = pager_unwritelock(pPager);
+	pPager->dbSize = -1;
+	return rc;
+
+	/* Jump here if anything goes wrong during the commit process.
+	如果写入出现错误，进入到这里进行数据的回滚
+	*/
 commit_abort:
-  rc = sqlitepager_rollback(pPager);
-  if (rc == SQLITE_OK)
-  {
-    rc = SQLITE_FULL;
-  }
-  return rc;
+	rc = sqlitepager_rollback(pPager);
+	if (rc == SQLITE_OK)
+	{
+		rc = SQLITE_FULL;
+	}
+	return rc;
 }
 
 /*
@@ -1731,32 +1744,32 @@ commit_abort:
 */
 int sqlitepager_rollback(Pager *pPager)
 {
-  int rc;
-  if (pPager->errMask != 0 && pPager->errMask != PAGER_ERR_FULL)
-  {
-    // 有错误信息
-    if (pPager->state >= SQLITE_WRITELOCK)
-    {
-      // 只有获取到数据库写锁才可以回滚
-      pager_playback(pPager);
-    }
-    return pager_errcode(pPager);
-  }
-  if (pPager->state != SQLITE_WRITELOCK)
-  {
-    // 只有获取写锁的Pager才能够回滚
-    return SQLITE_OK;
-  }
-  rc = pager_playback(pPager);
-  if (rc != SQLITE_OK)
-  {
-    // 回滚失败
-    rc = SQLITE_CORRUPT;
-    pPager->errMask |= PAGER_ERR_CORRUPT;
-  }
-  // 为什么进行回滚之后需要将dbSize置为-1?
-  pPager->dbSize = -1;
-  return rc;
+	int rc;
+	if (pPager->errMask != 0 && pPager->errMask != PAGER_ERR_FULL)
+	{
+		// 有错误信息
+		if (pPager->state >= SQLITE_WRITELOCK)
+		{
+			// 只有获取到数据库写锁才可以回滚
+			pager_playback(pPager);
+		}
+		return pager_errcode(pPager);
+	}
+	if (pPager->state != SQLITE_WRITELOCK)
+	{
+		// 只有获取写锁的Pager才能够回滚
+		return SQLITE_OK;
+	}
+	rc = pager_playback(pPager);
+	if (rc != SQLITE_OK)
+	{
+		// 回滚失败
+		rc = SQLITE_CORRUPT;
+		pPager->errMask |= PAGER_ERR_CORRUPT;
+	}
+	// 为什么进行回滚之后需要将dbSize置为-1?
+	pPager->dbSize = -1;
+	return rc;
 }
 
 /*
@@ -1765,7 +1778,7 @@ int sqlitepager_rollback(Pager *pPager)
 */
 int sqlitepager_isreadonly(Pager *pPager)
 {
-  return pPager->readOnly;
+	return pPager->readOnly;
 }
 
 /*
@@ -1773,17 +1786,17 @@ int sqlitepager_isreadonly(Pager *pPager)
 */
 int *sqlitepager_stats(Pager *pPager)
 {
-  static int a[9];
-  a[0] = pPager->nRef;
-  a[1] = pPager->nPage;
-  a[2] = pPager->mxPage;
-  a[3] = pPager->dbSize;
-  a[4] = pPager->state;
-  a[5] = pPager->errMask;
-  a[6] = pPager->nHit;
-  a[7] = pPager->nMiss;
-  a[8] = pPager->nOvfl;
-  return a;
+	static int a[9];
+	a[0] = pPager->nRef;
+	a[1] = pPager->nPage;
+	a[2] = pPager->mxPage;
+	a[3] = pPager->dbSize;
+	a[4] = pPager->state;
+	a[5] = pPager->errMask;
+	a[6] = pPager->nHit;
+	a[7] = pPager->nMiss;
+	a[8] = pPager->nOvfl;
+	return a;
 }
 
 /*
@@ -1795,38 +1808,38 @@ int *sqlitepager_stats(Pager *pPager)
 */
 int sqlitepager_ckpt_begin(Pager *pPager)
 {
-  int rc;
-  char zTemp[SQLITE_TEMPNAME_SIZE];
-  assert(pPager->journalOpen);
-  assert(!pPager->ckptInUse);
-  pPager->aInCkpt = malloc(pPager->dbSize / 8 + 1);
-  memset(pPager->aInCkpt, 0, pPager->dbSize / 8 + 1);
-  if (pPager->aInCkpt == 0)
-  {
-    sqliteOsReadLock(&pPager->fd);
-    return SQLITE_NOMEM;
-  }
-  rc = sqliteOsFileSize(&pPager->jfd, &pPager->ckptJSize);
-  if (rc)
-    goto ckpt_begin_failed;
-  pPager->ckptSize = pPager->dbSize;
-  if (!pPager->ckptOpen)
-  {
-    rc = sqlitepager_opentemp(zTemp, &pPager->cpfd);
-    if (rc)
-      goto ckpt_begin_failed;
-    pPager->ckptOpen = 1;
-  }
-  pPager->ckptInUse = 1;
-  return SQLITE_OK;
+	int rc;
+	char zTemp[SQLITE_TEMPNAME_SIZE];
+	assert(pPager->journalOpen);
+	assert(!pPager->ckptInUse);
+	pPager->aInCkpt = malloc(pPager->dbSize / 8 + 1);
+	memset(pPager->aInCkpt, 0, pPager->dbSize / 8 + 1);
+	if (pPager->aInCkpt == 0)
+	{
+		sqliteOsReadLock(&pPager->fd);
+		return SQLITE_NOMEM;
+	}
+	rc = sqliteOsFileSize(&pPager->jfd, &pPager->ckptJSize);
+	if (rc)
+		goto ckpt_begin_failed;
+	pPager->ckptSize = pPager->dbSize;
+	if (!pPager->ckptOpen)
+	{
+		rc = sqlitepager_opentemp(zTemp, &pPager->cpfd);
+		if (rc)
+			goto ckpt_begin_failed;
+		pPager->ckptOpen = 1;
+	}
+	pPager->ckptInUse = 1;
+	return SQLITE_OK;
 
 ckpt_begin_failed:
-  if (pPager->aInCkpt)
-  {
-    sqliteFree(pPager->aInCkpt);
-    pPager->aInCkpt = 0;
-  }
-  return rc;
+	if (pPager->aInCkpt)
+	{
+		sqliteFree(pPager->aInCkpt);
+		pPager->aInCkpt = 0;
+	}
+	return rc;
 }
 
 /*
@@ -1834,19 +1847,19 @@ ckpt_begin_failed:
 */
 int sqlitepager_ckpt_commit(Pager *pPager)
 {
-  if (pPager->ckptInUse)
-  {
-    PgHdr *pPg;
-    sqliteOsTruncate(&pPager->cpfd, 0);
-    pPager->ckptInUse = 0;
-    sqliteFree(pPager->aInCkpt);
-    pPager->aInCkpt = 0;
-    for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
-    {
-      pPg->inCkpt = 0;
-    }
-  }
-  return SQLITE_OK;
+	if (pPager->ckptInUse)
+	{
+		PgHdr *pPg;
+		sqliteOsTruncate(&pPager->cpfd, 0);
+		pPager->ckptInUse = 0;
+		sqliteFree(pPager->aInCkpt);
+		pPager->aInCkpt = 0;
+		for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
+		{
+			pPg->inCkpt = 0;
+		}
+	}
+	return SQLITE_OK;
 }
 
 /*
@@ -1854,17 +1867,17 @@ int sqlitepager_ckpt_commit(Pager *pPager)
 */
 int sqlitepager_ckpt_rollback(Pager *pPager)
 {
-  int rc;
-  if (pPager->ckptInUse)
-  {
-    rc = pager_ckpt_playback(pPager);
-    sqlitepager_ckpt_commit(pPager);
-  }
-  else
-  {
-    rc = SQLITE_OK;
-  }
-  return rc;
+	int rc;
+	if (pPager->ckptInUse)
+	{
+		rc = pager_ckpt_playback(pPager);
+		sqlitepager_ckpt_commit(pPager);
+	}
+	else
+	{
+		rc = SQLITE_OK;
+	}
+	return rc;
 }
 
 #if SQLITE_TEST
@@ -1873,13 +1886,13 @@ int sqlitepager_ckpt_rollback(Pager *pPager)
 */
 void sqlitepager_refdump(Pager *pPager)
 {
-  PgHdr *pPg;
-  for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
-  {
-    if (pPg->nRef <= 0)
-      continue;
-    printf("PAGE %3d addr=0x%08x nRef=%d\n",
-           pPg->pgno, (int)PGHDR_TO_DATA(pPg), pPg->nRef);
-  }
+	PgHdr *pPg;
+	for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
+	{
+		if (pPg->nRef <= 0)
+			continue;
+		printf("PAGE %3d addr=0x%08x nRef=%d\n",
+			   pPg->pgno, (int)PGHDR_TO_DATA(pPg), pPg->nRef);
+	}
 }
 #endif
