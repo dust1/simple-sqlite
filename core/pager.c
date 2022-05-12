@@ -278,34 +278,48 @@ static void pager_reset(Pager *pPager)
 ** a write lock on the database.  This routine releases the database
 ** write lock and acquires a read lock in its place.  The journal file
 ** is deleted and closed.
+** 当page开启事务后并没有对其有任何写入操作，则释放写锁并删除日志文件并关闭其句柄
 */
 static int pager_unwritelock(Pager *pPager)
 {
-	int rc;
-	PgHdr *pPg;
-	if (pPager->state < SQLITE_WRITELOCK)
-		return SQLITE_OK;
-	sqlitepager_ckpt_commit(pPager);
+  int rc;
+  PgHdr *pPg;
+  if (pPager->state < SQLITE_WRITELOCK)
+    return SQLITE_OK;
+  // 提交检查点文件
+  sqlitepager_ckpt_commit(pPager);
 
-	if (pPager->ckptOpen)
-	{
-		sqliteOsClose(&pPager->cpfd);
-		pPager->ckptOpen = 0;
-	}
-	sqliteOsClose(&pPager->jfd);
-	pPager->journalOpen = 0;
-	sqliteOsDelete(pPager->zJournal);
-	rc = sqliteOsReadLock(&pPager->fd);
-	assert(rc == SQLITE_OK);
-	sqliteFree(pPager->aInJournal);
-	pPager->aInJournal = 0;
-	for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
-	{
-		pPg->inJournal = 0;
-		pPg->dirty = 0;
-	}
-	pPager->state = SQLITE_READLOCK;
-	return rc;
+  if (pPager->ckptOpen)
+  {
+    // 如果检查点开着，则关闭检查点文件
+    sqliteOsClose(&pPager->cpfd);
+    pPager->ckptOpen = 0;
+  }
+
+  // 释放日志文件
+  sqliteOsClose(&pPager->jfd);
+  pPager->journalOpen = 0;
+
+  // 删除日志文件
+  sqliteOsDelete(pPager->zJournal);
+
+  // 将写锁降级为读锁
+  rc = sqliteOsReadLock(&pPager->fd);
+
+  assert(rc == SQLITE_OK);
+
+  // 在日志位图中将其释放
+  sqliteFree(pPager->aInJournal);
+  pPager->aInJournal = 0;
+
+  // 所有的page都设置为未操作状态
+  for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
+  {
+    pPg->inJournal = 0;
+    pPg->dirty = 0;
+  }
+  pPager->state = SQLITE_READLOCK;
+  return rc;
 }
 
 /*
@@ -726,12 +740,14 @@ int sqlitepager_pagecount(Pager *pPager)
 
 /*
 ** Shutdown the page cache.  Free all memory and close all files.
+** 关闭Page Cache，释放所有内存并关闭所有文件
 **
 ** If a transaction was in progress when this routine is called, that
 ** transaction is rolled back.  All outstanding pages are invalidated
 ** and their memory is freed.  Any attempt to use a page associated
 ** with this page cache after this function returns will likely
 ** result in a coredump.
+** 如果一个事务正在运行时调用该函数，那么回滚该事务.
 */
 int sqlitepager_close(Pager *pPager)
 {
@@ -1460,137 +1476,130 @@ int sqlitepager_begin(void *pData)
 */
 int sqlitepager_write(void *pData)
 {
-	// 从data指针获取页面指针
-	PgHdr *pPg = DATA_TO_PGHDR(pData);
-	// 从页面指针获取页面管理指针
-	Pager *pPager = pPg->pPager;
-	int rc = SQLITE_OK;
+  // 从data指针获取页面指针
+  PgHdr *pPg = DATA_TO_PGHDR(pData);
+  // 从页面指针获取页面管理指针
+  Pager *pPager = pPg->pPager;
+  int rc = SQLITE_OK;
 
-	/* Check for errors
-	检查写入前是否发生异常
-	*/
-	if (pPager->errMask)
-	{
-		return pager_errcode(pPager);
-	}
-	if (pPager->readOnly)
-	{
-		// 如果是只读状态，则无法写入
-		return SQLITE_PERM;
-	}
+  /* Check for errors
+  检查写入前是否发生异常
+  */
+  if (pPager->errMask)
+  {
+    return pager_errcode(pPager);
+  }
+  if (pPager->readOnly)
+  {
+    // 如果是只读状态，则无法写入
+    return SQLITE_PERM;
+  }
 
-	/* Mark the page as dirty.  If the page has already been written
-	** to the journal then we can return right away.
-	** 将Page修改为脏页，如果页面已经写入日志，那么我们可以立即返回
-	*/
-	pPg->dirty = 1;
-	// 该Page已被写入到日志文件中，且该Page已被写入到checkpoint文件中或者尚未有其他线程在写入检查点文件
-	if (pPg->inJournal && (pPg->inCkpt || pPager->ckptInUse == 0))
-	{
-		// 该数据库文件已被修改，可以直接被写入
-		pPager->dirtyFile = 1;
-		return SQLITE_OK;
-	}
+  /* Mark the page as dirty.  If the page has already been written
+  ** to the journal then we can return right away.
+  ** 将Page修改为脏页，如果页面已经写入日志，那么我们可以立即返回
+  */
+  pPg->dirty = 1;
+  // 该Page已被写入到日志文件中，且该Page已被写入到checkpoint文件中或者尚未有其他线程在写入检查点文件
+  if (pPg->inJournal && (pPg->inCkpt || pPager->ckptInUse == 0))
+  {
+    // 也意味着该Page的事务已经开始
+    // 该数据库文件已被修改，可以直接被写入
+    pPager->dirtyFile = 1;
+    return SQLITE_OK;
+  }
 
-	/* If we get this far, it means that the page needs to be
-	** written to the transaction journal or the ckeckpoint journal
-	** or both.
-	** 如果走到这一步，意味着Page需要写入事务日志或检查点日志或两者都要有
-	**
-	** First check to see that the transaction journal exists and
-	** create it if it does not.
-	** 首先检查事务日志是否存在，如果不存在则创建
-	*/
-	assert(pPager->state != SQLITE_UNLOCK);
-	rc = sqlitepager_begin(pData);
-	pPager->dirtyFile = 1;
-	if (rc != SQLITE_OK)
-		return rc;
-	assert(pPager->state == SQLITE_WRITELOCK);
-	assert(pPager->journalOpen);
+  /* If we get this far, it means that the page needs to be
+  ** written to the transaction journal or the ckeckpoint journal
+  ** or both.
+  ** 如果走到这一步，意味着Page需要写入事务日志或检查点日志或两者都要有
+  **
+  ** First check to see that the transaction journal exists and
+  ** create it if it does not.
+  ** 首先检查事务日志是否存在，如果不存在则创建
+  */
+  assert(pPager->state != SQLITE_UNLOCK);
+  // 开启事务，将文件校验数据、开始事务前的page数量写入日志文件
+  rc = sqlitepager_begin(pData);
+  pPager->dirtyFile = 1;
+  if (rc != SQLITE_OK)
+    return rc;
+  assert(pPager->state == SQLITE_WRITELOCK);
+  assert(pPager->journalOpen);
 
-	/* The transaction journal now exists and we have a write lock on the
-	** main database file.  Write the current page to the transaction
-	** journal if it is not there already.
-	** 事务日志现在存在并且我们对数据库文件拥有写锁.
-	** 如果当前页面不存在，则将当前页面写入事务日志
-	*/
-	if (!pPg->inJournal && (int)pPg->pgno <= pPager->origDbSize)
-	{
-		// 事务开启后在事务文件中记录下当前page的id
-		rc = sqliteOsWrite(&pPager->jfd, &pPg->pgno, sizeof(Pgno));
-		if (rc == SQLITE_OK)
-		{
-			// pageId写入到事务文件中后，将Page本次要写入的数据内容写入到journal文件中
-			rc = sqliteOsWrite(&pPager->jfd, pData, SQLITE_PAGE_SIZE);
-		}
-		if (rc != SQLITE_OK)
-		{
-			// 内容写入失败，则回滚
-			sqlitepager_rollback(pPager);
-			pPager->errMask |= PAGER_ERR_FULL;
-			return rc;
-		}
-		assert(pPager->aInJournal != 0);
+  /* The transaction journal now exists and we have a write lock on the
+  ** main database file.  Write the current page to the transaction
+  ** journal if it is not there already.
+  ** 事务日志现在存在并且我们对数据库文件拥有写锁.
+  ** 如果当前页面不存在，则将当前页面写入事务日志
+  */
+  // page未写入到日志且pgno小于等于当前数据库page数量,即page数据已存在fd文件中
+  if (!pPg->inJournal && (int)pPg->pgno <= pPager->origDbSize)
+  {
+    // 事务开启后在事务文件中记录下当前page的id
+    rc = sqliteOsWrite(&pPager->jfd, &pPg->pgno, sizeof(Pgno));
+    if (rc == SQLITE_OK)
+    {
+      // 将执行写入之前的Page信息写到日志文件中
+      // 好像是REDO文件
+      rc = sqliteOsWrite(&pPager->jfd, pData, SQLITE_PAGE_SIZE);
+    }
+    if (rc != SQLITE_OK)
+    {
+      // 内容写入失败，则回滚
+      sqlitepager_rollback(pPager);
+      pPager->errMask |= PAGER_ERR_FULL;
+      return rc;
+    }
+    assert(pPager->aInJournal != 0);
 
-		/**
-		 * 1 << (pPg->pgno&7): 截取这个Page的id最低3位,将1往左移动这个位
-		 * aInJournal[pPg->pgno/8]: ?
-		 */
-		printf("----- 修改前 ----\n");
-		for (int i = pPager->dbSize / 8 + 1; i >= 0; i--)
-		{
-			printf("%d", pPager->aInJournal[i]);
-		}
-		printf("\n");
+    // 将这个pgno对应的位数改为1,表示该page开启事务前的data已被写入到日志文件中
+    pPager->aInJournal[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
+    // 需要执行sync()?
+    pPager->needSync = !pPager->noSync;
+    // 该page已被写入到日志
+    pPg->inJournal = 1;
+    if (pPager->ckptInUse)  // 是否使用检查点
+    {
+      // 检查点标志设置为1
+      pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
+      pPg->inCkpt = 1;
+    }
+  }
 
-		pPager->aInJournal[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
-		pPager->needSync = !pPager->noSync;
-		pPg->inJournal = 1;
-		if (pPager->ckptInUse)
-		{
-			pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
-			pPg->inCkpt = 1;
-		}
+  /* If the checkpoint journal is open and the page is not in it,
+  ** then write the current page to the checkpoint journal.
+  ** 如果pager使用检查点，且page不在检查点文件中，且page自身位于fd文件中
+  */
+  if (pPager->ckptInUse && !pPg->inCkpt && (int)pPg->pgno <= pPager->ckptSize)
+  {
+    assert(pPg->inJournal || (int)pPg->pgno > pPager->origDbSize);
+    // 将当前pgno写入检查点文件
+    rc = sqliteOsWrite(&pPager->cpfd, &pPg->pgno, sizeof(Pgno));
+    if (rc == SQLITE_OK)
+    {
+      // 将当前page的data写入到检查点文件
+      rc = sqliteOsWrite(&pPager->cpfd, pData, SQLITE_PAGE_SIZE);
+    }
+    if (rc != SQLITE_OK)
+    {
+      sqlitepager_rollback(pPager);
+      pPager->errMask |= PAGER_ERR_FULL;
+      return rc;
+    }
+    assert(pPager->aInCkpt != 0);
+    pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
+    pPg->inCkpt = 1;
+  }
 
-		printf("----- 修改后 ----\n");
-		for (int i = pPager->dbSize / 8 + 1; i >= 0; i--)
-		{
-			printf("%d", pPager->aInJournal[i]);
-		}
-		printf("\n");
-	}
-
-	/* If the checkpoint journal is open and the page is not in it,
-	** then write the current page to the checkpoint journal.
-	*/
-	if (pPager->ckptInUse && !pPg->inCkpt && (int)pPg->pgno <= pPager->ckptSize)
-	{
-
-		assert(pPg->inJournal || (int)pPg->pgno > pPager->origDbSize);
-		rc = sqliteOsWrite(&pPager->cpfd, &pPg->pgno, sizeof(Pgno));
-		if (rc == SQLITE_OK)
-		{
-			rc = sqliteOsWrite(&pPager->cpfd, pData, SQLITE_PAGE_SIZE);
-		}
-		if (rc != SQLITE_OK)
-		{
-			sqlitepager_rollback(pPager);
-			pPager->errMask |= PAGER_ERR_FULL;
-			return rc;
-		}
-		assert(pPager->aInCkpt != 0);
-		pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
-		pPg->inCkpt = 1;
-	}
-
-	/* Update the database size and return.
-	 */
-	if (pPager->dbSize < (int)pPg->pgno)
-	{
-		pPager->dbSize = pPg->pgno;
-	}
-	return rc;
+  /* Update the database size and return.
+   */
+  if (pPager->dbSize < (int)pPg->pgno)
+  {
+    // 如果pager中保存的page数量小于当前pgno，则将其修改为pgno
+    pPager->dbSize = pPg->pgno;
+  }
+  return rc;
 }
 
 /*
@@ -1671,75 +1680,73 @@ void sqlitepager_dont_rollback(void *pData)
 */
 int sqlitepager_commit(Pager *pPager)
 {
-	int rc;
-	PgHdr *pPg;
+  int rc;
+  PgHdr *pPg;
 
-	if (pPager->errMask == PAGER_ERR_FULL)
-	{
-		// 写入时发生异常，回滚数据
-		rc = sqlitepager_rollback(pPager);
-		if (rc == SQLITE_OK)
-			rc = SQLITE_FULL;
-		return rc;
-	}
-	if (pPager->errMask != 0)
-	{
-		// 出现出写入异常外的其他异常
-		rc = pager_errcode(pPager);
-		return rc;
-	}
-	if (pPager->state != SQLITE_WRITELOCK)
-	{
-		return SQLITE_ERROR;
-	}
+  if (pPager->errMask == PAGER_ERR_FULL)
+  {
+    // page爆满
+    rc = sqlitepager_rollback(pPager);
+    if (rc == SQLITE_OK)
+      rc = SQLITE_FULL;
+    return rc;
+  }
+  if (pPager->errMask != 0)
+  {
+    // 出现出写入异常外的其他异常
+    rc = pager_errcode(pPager);
+    return rc;
+  }
 
-	assert(pPager->journalOpen);
-	if (pPager->dirtyFile == 0)
-	{
-		/* Exit early (without doing the time-consuming sqliteOsSync() calls)
-		** if there have been no changes to the database file. */
-		// 如果文件没有被修改，则不需要进行写入
-		// 释放数据库文件的写锁并获取读锁，同时删除日志文件
-		rc = pager_unwritelock(pPager);
-		pPager->dbSize = -1;
-		return rc;
-	}
+  if (pPager->state != SQLITE_WRITELOCK)
+  {
+    return SQLITE_ERROR;
+  }
+  assert(pPager->journalOpen);
+  if (pPager->dirtyFile == 0)
+  {
+    /* Exit early (without doing the time-consuming sqliteOsSync() calls)
+    ** if there have been no changes to the database file. */
+    // 整个pager中没有任何一个page被修改
+    // 释放数据库文件的写锁并获取读锁，同时删除日志文件
+    rc = pager_unwritelock(pPager);
+    pPager->dbSize = -1;
+    return rc;
+  }
 
-	if (pPager->needSync && sqliteOsSync(&pPager->jfd) != SQLITE_OK)
-	{
-		// 开始写入先必须将日志刷入磁盘
-		// 如果Page需要同步刷入磁盘，且将日志文件缓存刷入磁盘失败后进行数据回滚
-		goto commit_abort;
-	}
+  if (pPager->needSync && sqliteOsSync(&pPager->jfd) != SQLITE_OK)
+  {
+    // 开始写入先必须将日志刷入磁盘
+    // 如果Page需要同步刷入磁盘，且将日志文件缓存刷入磁盘失败后进行数据回滚
+    goto commit_abort;
+  }
+  for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
+  {
+    // 遍历整个链表
+    if (pPg->dirty == 0)
+      continue;
+    // 获取数据头指针
+    rc = sqliteOsSeek(&pPager->fd, (pPg->pgno - 1) * SQLITE_PAGE_SIZE);
+    if (rc != SQLITE_OK)
+      goto commit_abort;
+    // 将数据写入数据库文件
+    rc = sqliteOsWrite(&pPager->fd, PGHDR_TO_DATA(pPg), SQLITE_PAGE_SIZE);
+    if (rc != SQLITE_OK)
+      goto commit_abort;
+  }
+  if (!pPager->noSync && sqliteOsSync(&pPager->fd) != SQLITE_OK)
+  {
+    // 写入完成之后就立刻将修改刷入磁盘
+    // 如果写入日志时不需要同步写入且在将数据库文件强制刷入磁盘失败
+    goto commit_abort;
+  }
+  rc = pager_unwritelock(pPager);
+  pPager->dbSize = -1;
+  return rc;
 
-	for (pPg = pPager->pAll; pPg; pPg = pPg->pNextAll)
-	{
-		// 遍历整个链表
-		if (pPg->dirty == 0)
-			continue;
-
-		// 获取数据头指针
-		rc = sqliteOsSeek(&pPager->fd, (pPg->pgno - 1) * SQLITE_PAGE_SIZE);
-		if (rc != SQLITE_OK)
-			goto commit_abort;
-		// 将数据写入数据库文件
-		rc = sqliteOsWrite(&pPager->fd, PGHDR_TO_DATA(pPg), SQLITE_PAGE_SIZE);
-		if (rc != SQLITE_OK)
-			goto commit_abort;
-	}
-	if (!pPager->noSync && sqliteOsSync(&pPager->fd) != SQLITE_OK)
-	{
-		// 写入完成之后就立刻将修改刷入磁盘
-		// 如果写入日志时不需要同步写入且在将数据库文件强制刷入磁盘失败
-		goto commit_abort;
-	}
-	rc = pager_unwritelock(pPager);
-	pPager->dbSize = -1;
-	return rc;
-
-	/* Jump here if anything goes wrong during the commit process.
-	如果写入出现错误，进入到这里进行数据的回滚
-	*/
+  /* Jump here if anything goes wrong during the commit process.
+  如果写入出现错误，进入到这里进行数据的回滚
+  */
 commit_abort:
 	rc = sqlitepager_rollback(pPager);
 	if (rc == SQLITE_OK)
@@ -1868,6 +1875,7 @@ ckpt_begin_failed:
 
 /*
 ** Commit a checkpoint.
+** 提交检查点
 */
 int sqlitepager_ckpt_commit(Pager *pPager)
 {

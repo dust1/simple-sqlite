@@ -20,6 +20,7 @@
 **
 ** The basic idea is that each page of the file contains N database
 ** entries and N+1 pointers to subpages.
+** 其基本思想是，文件的每个页面都包含N个数据库条目和N+1个指向子页面的指针
 **
 **   ----------------------------------------------------------------
 **   |  Ptr(0) | Key(0) | Ptr(1) | Key(1) | ... | Key(N) | Ptr(N+1) |
@@ -30,9 +31,13 @@
 ** values greater than Key(0) and less than Key(1).  All of the keys
 ** on Ptr(N+1) and its subpages have values greater than Key(N).  And
 ** so forth.
+** 页面上Ptr(0)指向的所有key的值都小于key(0).
+** 页面上Ptr(1)及其子页面上的所有key的值都大于key(0)且小于key(1)
+** Ptr(N+1)及其子页面上的所有key的值都大于key(N)...
 **
 ** Finding a particular key requires reading O(log(M)) pages from the 
 ** disk where M is the number of entries in the tree.
+** 查找特定key所需的时间复杂度为O(log(M)),其中M为查询的实体在tree中的条目数
 **
 ** In this implementation, a single file can hold one or more separate 
 ** BTrees.  Each BTree is identified by the index of its root page.  The
@@ -42,12 +47,24 @@
 ** then surplus bytes are stored on overflow pages.  The payload for an
 ** entry and the preceding pointer are combined to form a "Cell".  Each 
 ** page has a small header which contains the Ptr(N+1) pointer.
+** 在这个实现中，一个文件可以保存一个或多个单独的BTree。
+** 每个BTree都由其root页面的索引标识。
+** 任何条目的key和数据都被组合为"payload"。
+** 多达MX_LOCAL_PAYLOAD字节的payload可以直接在数据库Page上携带.
+** 如果payload大于MX_LOCAL_PAYLOAD，剩余字节保存在溢出页上。
+** 条目的有效payload和前面的指针组合一起成为一个"单元".
+** 每个页面都有一个小标题，其中包含Ptr(N+1)指针
+** > payload可能是一条记录，即data
 **
 ** The first page of the file contains a magic string used to verify that
 ** the file really is a valid BTree database, a pointer to a list of unused
 ** pages in the file, and some meta information.  The root of the first
 ** BTree begins on page 2 of the file.  (Pages are numbered beginning with
 ** 1, not 0.)  Thus a minimum database contains 2 pages.
+** 文件的第一个Page包含magic number用于校验改文件是否是该数据库的有效数据文件，
+** 指向文件中未使用Page列表的指针，以及一些元信息。
+** 第一个BTree的root从文件的第二个Page开始。
+** > pgnp从1开始，一个数据库至少包含两个page
 */
 #include "sqliteInt.h"
 #include "pager.h"
@@ -105,30 +122,36 @@ static const char zMagicHeader[] =
 ** a pointer to the first free page of the file.  Page 2 contains the
 ** root of the principle BTree.  The file might contain other BTrees
 ** rooted on pages above 2.
+** 数据库的第一个Page，包含头文件校验、空闲Page链表的指针、和一些元数据.
+** 第二页则包含BTree的root节点，改文件可能包含两个以上Page为root的其他BTree
 **
 ** The first page also contains SQLITE_N_BTREE_META integers that
 ** can be used by higher-level routines.
+** 第一个Page还包含SQLITE_N_BTREE_META整数，可供更高级别的例程使用
 **
 ** Remember that pages are numbered beginning with 1.  (See pager.c
 ** for additional information.)  Page 0 does not exist and a page
 ** number of 0 is used to mean "no such page".
+** 记住，pgno起始编号为1. 不存在pgno为0的Page
 */
 struct PageOne {
-  char zMagic[MAGIC_SIZE]; /* String that identifies the file as a database */
-  int iMagic;              /* Integer to verify correct byte order */
-  Pgno freeList;           /* First free page in a list of all free pages */
-  int nFree;               /* Number of pages on the free list */
-  int aMeta[SQLITE_N_BTREE_META-1];  /* User defined integers */
+  char zMagic[MAGIC_SIZE]; /* String that identifies the file as a database | 该数据的文件校验头 */
+  int iMagic;              /* Integer to verify correct byte order | 用于验证正确字节顺序的整数 */
+  Pgno freeList;           /* First free page in a list of all free pages | 所有free页面组成链表的头页面编号 */
+  int nFree;               /* Number of pages on the free list | 所有free页面的数量 */
+  int aMeta[SQLITE_N_BTREE_META-1];  /* User defined integers | 其他元数据信息 */
 };
 
 /*
 ** Each database page has a header that is an instance of this
 ** structure.
+** 每个数据库Page都有一个标头，他是此结构的实例
 **
 ** PageHdr.firstFree is 0 if there is no free space on this page.
 ** Otherwise, PageHdr.firstFree is the index in MemPage.u.aDisk[] of a 
 ** FreeBlk structure that describes the first block of free space.  
 ** All free space is defined by a linked list of FreeBlk structures.
+** 
 **
 ** Data is stored in a linked list of Cell structures.  PageHdr.firstCell
 ** is the index into MemPage.u.aDisk[] of the first cell on the page.  The
@@ -316,12 +339,12 @@ struct MemPage {
 */
 struct Btree {
   Pager *pPager;        /* The page cache | 页面缓存 */
-  BtCursor *pCursor;    /* A list of all open cursors */
-  PageOne *page1;       /* First page of the database */
-  u8 inTrans;           /* True if a transaction is in progress */
-  u8 inCkpt;            /* True if there is a checkpoint on the transaction */
-  u8 readOnly;          /* True if the underlying file is readonly */
-  Hash locks;           /* Key: root page number.  Data: lock count */
+  BtCursor *pCursor;    /* A list of all open cursors | 所有打开的游标的列表 */
+  PageOne *page1;       /* First page of the database | 数据库的Page头结点 */
+  u8 inTrans;           /* True if a transaction is in progress | 如果一个事务正在运行，则为true */
+  u8 inCkpt;            /* True if there is a checkpoint on the transaction | 如果事务上有个checkpoing则为true */
+  u8 readOnly;          /* True if the underlying file is readonly | 如果数据库是只读的，则为true */
+  Hash locks;           /* Key: root page number.  Data: lock count | page持有锁的数量映射。key：pgnp。data：锁的数量  */
 };
 typedef Btree Bt;
 
@@ -329,16 +352,18 @@ typedef Btree Bt;
 ** A cursor is a pointer to a particular entry in the BTree.
 ** The entry is identified by its MemPage and the index in
 ** MemPage.apCell[] of the entry.
+** 游标(Cursor)是指向BTree中特定条目的指针。
+** 该实体由MemPage和MemPage.apCell[] 的索引组成
 */
 struct BtCursor {
-  Btree *pBt;               /* The Btree to which this cursor belongs */
-  BtCursor *pNext, *pPrev;  /* Forms a linked list of all cursors */
-  Pgno pgnoRoot;            /* The root page of this tree */
-  MemPage *pPage;           /* Page that contains the entry */
-  int idx;                  /* Index of the entry in pPage->apCell[] */
-  u8 wrFlag;                /* True if writable */
-  u8 bSkipNext;             /* sqliteBtreeNext() is no-op if true */
-  u8 iMatch;                /* compare result from last sqliteBtreeMoveto() */
+  Btree *pBt;               /* The Btree to which this cursor belongs | 此光标所属的BTree */
+  BtCursor *pNext, *pPrev;  /* Forms a linked list of all cursors | 所有游标的链表 */
+  Pgno pgnoRoot;            /* The root page of this tree | 这棵树的根节点(roow Page)编号 */
+  MemPage *pPage;           /* Page that contains the entry | 包含该实体(entry)的Page */
+  int idx;                  /* Index of the entry in pPage->apCell[] | 该实体位于pPage->apCell[]列表中的下标 */
+  u8 wrFlag;                /* True if writable | 如果允许写入则为true */
+  u8 bSkipNext;             /* sqliteBtreeNext() is no-op if true | 如果为true,则sqliteBtreeNext()不启用 */
+  u8 iMatch;                /* compare result from last sqliteBtreeMoveto() | 比较上一次执行sqliteBtreeMoveto()的结果 */
 };
 
 /*
