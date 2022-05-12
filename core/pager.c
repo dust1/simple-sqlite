@@ -135,7 +135,7 @@ struct Pager
 	u8 readOnly;				 /* True for a read-only database| 如果是只读的数据库，则为true */
 	u8 needSync;				 /* True if an fsync() is needed on the journal | 写入数据库文件之前是否将日志刷入磁盘 */
 	u8 dirtyFile;				 /* True if database file has changed in any way| 如果这个数据库文件有被修改，则为true  */
-	u8 *aInJournal;				 /* One bit for each page in the database file| 数据库中每一页对应一位，表示对应pgno的page是否已被写入到日志文件中 */
+	u8 *aInJournal;				 /* One bit for each page in the database file| 数据库中每一页对应一位，表示对应pgno的page是否已被写入到日志文件中(一次事务中的Page) */
 	u8 *aInCkpt;				 /* One bit for each page in the database | 数据库中每一页对应一位，表示对应pgno的page是否写入checkpoint文件 */
 	PgHdr *pFirst, *pLast;		 /* List of free pages | 没有被使用的Page组成的链表的首尾节点 */
 	PgHdr *pAll;				 /* List of all pages | 总的Page链表的头节点 */
@@ -1351,6 +1351,7 @@ int sqlitepager_unref(void *pData)
 ** 注意:这个读锁是数据库级别的读锁,一个数据库允许多个读锁,但只要还有其他读锁存在就无法再分配出写锁
 **
 ** If the database is already write-locked, this routine is a no-op.
+** 修改jfd文件为后续Page数据的写入初始化前缀
 */
 int sqlitepager_begin(void *pData)
 {
@@ -1362,26 +1363,34 @@ int sqlitepager_begin(void *pData)
 	assert(pPg->nRef > 0);
 	assert(pPager->state != SQLITE_UNLOCK);
 
+	// 此时写入者应该还没有获取到数据库的写锁
 	if (pPager->state == SQLITE_READLOCK)
 	{
+		// 开始一个事务前pager持有读锁，开始一个事务后尝试获取写锁
+		// 一个事务中只会在获取写锁的时候执行下面的代码
+		// 当一个事务结束后它的状态才会降级为读锁,在事务执行期间都是持有写锁
+		printf("写入前校验读锁\n");
 		// 必须要得到改Page的读锁
 		// 如果page拥有读锁,则尝试升格为写锁
 		assert(pPager->aInJournal == 0);
+		// 获取fd的写锁
 		rc = sqliteOsWriteLock(&pPager->fd);
 		if (rc != SQLITE_OK)
 		{
 			return rc;
 		}
+
 		// 给Pager的AInJournal开辟一块内存空间,空间大小跟当前数据库中Page数量相关
+		// aInJournal记录的是哪个pgno的Page已经写入到日志
 		pPager->aInJournal = malloc(pPager->dbSize / 8 + 1);
 		memset(pPager->aInJournal, 0, pPager->dbSize / 8 + 1);
-
 		if (pPager->aInJournal == 0)
 		{
 			// 开辟内存失败
 			sqliteOsReadLock(&pPager->fd);
 			return SQLITE_NOMEM;
 		}
+
 		// 为此进程打开一个独占的可供读写的文件
 		rc = sqliteOsOpenExclusive(pPager->zJournal, &pPager->jfd, 0);
 		if (rc != SQLITE_OK)
@@ -1528,6 +1537,13 @@ int sqlitepager_write(void *pData)
 		 * 1 << (pPg->pgno&7): 截取这个Page的id最低3位,将1往左移动这个位
 		 * aInJournal[pPg->pgno/8]: ?
 		 */
+		printf("----- 修改前 ----\n");
+		for (int i = pPager->dbSize / 8 + 1; i >= 0; i--)
+		{
+			printf("%d", pPager->aInJournal[i]);
+		}
+		printf("\n");
+
 		pPager->aInJournal[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
 		pPager->needSync = !pPager->noSync;
 		pPg->inJournal = 1;
@@ -1536,6 +1552,13 @@ int sqlitepager_write(void *pData)
 			pPager->aInCkpt[pPg->pgno / 8] |= 1 << (pPg->pgno & 7);
 			pPg->inCkpt = 1;
 		}
+
+		printf("----- 修改后 ----\n");
+		for (int i = pPager->dbSize / 8 + 1; i >= 0; i--)
+		{
+			printf("%d", pPager->aInJournal[i]);
+		}
+		printf("\n");
 	}
 
 	/* If the checkpoint journal is open and the page is not in it,
@@ -1543,6 +1566,7 @@ int sqlitepager_write(void *pData)
 	*/
 	if (pPager->ckptInUse && !pPg->inCkpt && (int)pPg->pgno <= pPager->ckptSize)
 	{
+
 		assert(pPg->inJournal || (int)pPg->pgno > pPager->origDbSize);
 		rc = sqliteOsWrite(&pPager->cpfd, &pPg->pgno, sizeof(Pgno));
 		if (rc == SQLITE_OK)

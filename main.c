@@ -16,14 +16,14 @@ int main() {
     #endif
 
     /* Tests for VFS functionality */
-    testVFS(&fileLocation);
+    // testVFS(&fileLocation);
 
     /* Tests for Pager functionality */
-    testPager(&fileLocation);
+    // testPager(&fileLocation);
 
-    myTestPager();
+    testCommit(&fileLocation);
 
     /* Tests for Btree functionality */
-    testBtree(&fileLocation);
+    // testBtree(&fileLocation);
     return 0;
 }

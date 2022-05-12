@@ -42,6 +42,7 @@ void testPager(char **fileLocation)
     // Add string into the page
     strncpy((char *)pPage, "Page One", SQLITE_PAGE_SIZE - 1);
     // Commit page data into the file
+
     rc = sqlitepager_commit(pPager);
 
     pPage = sqlitepager_lookup(pPager, 2);
@@ -73,7 +74,7 @@ void testPager(char **fileLocation)
     /** Step 4 : Write data into the third page and before commit the changes, rollback to the previous state **/
     pPage = sqlitepager_lookup(pPager, 3);
     rc = sqlitepager_write(pPage);
-    strncpy((char *)pPage, "Page test rollback", SQLITE_PAGE_SIZE - 1);
+    strncpy((char*)pPage, "Page test rollback", SQLITE_PAGE_SIZE-1);
     // Rallback changes to the previous state
     sqlitepager_rollback(pPager);
     rc = sqlitepager_commit(pPager);
@@ -121,4 +122,41 @@ void myTestPager()
     sqlitepager_close(pPager);
     sqliteOsDelete(path);
 #endif
+}
+
+void testCommit(char **fileLocation)
+{
+    char zBuf[100];
+    int rc;
+    Pager *pPager;
+    void *pPage;
+
+    rc = sqlitepager_open(&pPager, *fileLocation, 10, 0);
+    rc = sqlitepager_get(pPager, 1, &pPage);
+    rc = sqlitepager_get(pPager, 2, &pPage);
+
+
+    pPage = sqlitepager_lookup(pPager, 1);
+    rc = sqlitepager_write(pPage);
+    // 对pgno=1的块进行写入
+    strncpy((char *)pPage, "Page One", SQLITE_PAGE_SIZE - 1);
+
+    rc = sqlitepager_commit(pPager);
+    pPage = sqlitepager_lookup(pPager, 2);
+    rc = sqlitepager_write(pPage);
+    // 对pgno=2的块进行写入
+    strncpy((char *)pPage, "Page Two", SQLITE_PAGE_SIZE - 1);
+
+    // 一起提交
+    rc = sqlitepager_commit(pPager);
+
+    // 检查
+    sqlitepager_get(pPager, 1, &pPage);
+    memcpy(zBuf, pPage, sizeof(zBuf));
+    printf("Read page result1: %s\n", zBuf);
+
+    sqlitepager_get(pPager, 2, &pPage);
+    memcpy(zBuf, pPage, sizeof(zBuf));
+    printf("Read page result2: %s\n", zBuf);
+ 
 }
