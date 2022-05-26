@@ -21,6 +21,7 @@
 
 /* Turn bulk memory into a hash table object by initializing the
 ** fields of the Hash structure.
+** 用过初始化Hash结构的字段，将大容量内存变成哈希表对象
 **
 ** "new" is a pointer to the hash table that is to be initialized.
 ** keyClass is one of the constants SQLITE_HASH_INT, SQLITE_HASH_POINTER,

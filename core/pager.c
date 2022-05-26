@@ -702,6 +702,7 @@ int sqlitepager_open(
 ** Set the destructor for this pager.  If not NULL, the destructor is called
 ** when the reference count on each page reaches zero.  The destructor can
 ** be used to clean up information in the extra segment appended to each page.
+** 设置Pager的析构函数，当Page的引用为0时，调用改函数来清除附加到每个页面的额外信息
 **
 ** The destructor is not called as a result sqlitepager_close().
 ** Destructors are only called by sqlitepager_unref().
@@ -1296,6 +1297,7 @@ void *sqlitepager_lookup(Pager *pPager, Pgno pgno)
 
 /*
 ** Release a page.
+** 释放一个Page
 **
 ** If the number of references to the page drop to zero, then the
 ** page is added to the LRU list.  When all references to all pages

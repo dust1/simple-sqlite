@@ -18,7 +18,7 @@ int main() {
     /* Tests for VFS functionality */
     testVFS(&fileLocation);
 
-    /* Tests for Pager functionality */
+    // /* Tests for Pager functionality */
     testPager(&fileLocation);
 
     // testCommit(&fileLocation);
