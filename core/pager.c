@@ -1385,7 +1385,7 @@ int sqlitepager_begin(void *pData)
 		// 开始一个事务前pager持有读锁，开始一个事务后尝试获取写锁
 		// 一个事务中只会在获取写锁的时候执行下面的代码
 		// 当一个事务结束后它的状态才会降级为读锁,在事务执行期间都是持有写锁
-		printf("写入前校验读锁\n");
+		// printf("写入前校验读锁\n");
 		// 必须要得到改Page的读锁
 		// 如果page拥有读锁,则尝试升格为写锁
 		assert(pPager->aInJournal == 0);
