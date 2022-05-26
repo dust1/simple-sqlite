@@ -148,6 +148,7 @@ struct PageOne {
 ** 每个数据库Page都有一个标头，他是此结构的实例
 **
 ** PageHdr.firstFree is 0 if there is no free space on this page.
+** 如果页面中没有空闲空间,则PageHdr.firstFree为0
 ** Otherwise, PageHdr.firstFree is the index in MemPage.u.aDisk[] of a 
 ** FreeBlk structure that describes the first block of free space.  
 ** All free space is defined by a linked list of FreeBlk structures.
@@ -164,7 +165,7 @@ struct PageOne {
 */
 struct PageHdr {
   Pgno rightChild;  /* Child page that comes after all cells on this page */
-  u16 firstCell;    /* Index in MemPage.u.aDisk[] of the first cell */
+  u16 firstCell;    /* Index in MemPage.u.aDisk[] of the first cell|  */
   u16 firstFree;    /* Index in MemPage.u.aDisk[] of the first free block */
 };
 
@@ -199,12 +200,15 @@ struct CellHdr {
 /*
 ** The minimum size of a complete Cell.  The Cell must contain a header
 ** and at least 4 bytes of payload.
+** 一个数据库条目(Entry/Cell)的最小大小,Cell必须包含一个标头和至少4字节的有效数据
 */
 #define MIN_CELL_SIZE  (sizeof(CellHdr)+4)
 
 /*
 ** The maximum number of database entries that can be held in a single
 ** page of the database. 
+** 可以在数据库单个页面中保存的最大数据库条目(Entry)数量
+** (单个Page大小-Page标头信息)/最小条目大小
 */
 #define MX_CELL ((SQLITE_PAGE_SIZE-sizeof(PageHdr))/MIN_CELL_SIZE)
 
@@ -293,12 +297,18 @@ struct FreelistInfo {
 ** the disk.  The rest is auxiliary information held in memory only. The
 ** auxiliary info is only valid for regular database pages - it is not
 ** used for overflow pages and pages on the freelist.
+** 对于数据库中的每一个Page，都采用以下的数据结构实例存储在内存中.
+** u.aDisk[]数组包含从磁盘读取的原始位。(Page在磁盘上的顺序,这个顺序不一定是按照pgno来排列的)
+** 其余的是仅保存在内存中的辅助信息，辅助信息仅对常规Page有效，它不适用于
+** 溢出页面和空闲列表上的页面
 **
 ** Of particular interest in the auxiliary info is the apCell[] entry.  Each
 ** apCell[] entry is a pointer to a Cell structure in u.aDisk[].  The cells are
 ** put in this array so that they can be accessed in constant time, rather
 ** than in linear time which would be needed if we had to walk the linked 
 ** list on every access.
+** 对辅助信息特别感兴趣的是apCell[]条目。每个apCell[]条目都是指向u.aDisk[]中的Cell结构指针。
+** 将cell放入这个数组中，以便可以在恒定时间内访问它们，而不是在每次访问时都必须花费遍历链表的线性时间
 **
 ** Note that apCell[] contains enough space to hold up to two more Cells
 ** than can possibly fit on one page.  In the steady state, every apCell[]
@@ -308,23 +318,30 @@ struct FreelistInfo {
 ** resolved.  But while it is happening, it is possible for a database
 ** page to hold as many as two more cells than it might otherwise hold.
 ** The extra two entries in apCell[] are an allowance for this situation.
+** apCell[]包含的空间足以容纳比一页可能容纳的多两个单元格。
+** > 在稳定状态下，每个apCell[]都指向u.aDisk[]内部的内存。但是在插入操作的过程中，
+** > 一些apCell[]条目可能会暂时指向u.aDisk[]之外的数据空间。这是一个短暂的情况,
+** > 很快就会得到解决。
+** > 但当这个情况发生时，一个数据库页面有可能比其他情况下多容纳两个单元格。
+** > apCell[]中额外的两个条目是针对这种情况的允许值
 **
 ** The pParent field points back to the parent page.  This allows us to
 ** walk up the BTree from any leaf to the root.  Care must be taken to
 ** unref() the parent page pointer when this page is no longer referenced.
 ** The pageDestructor() routine handles that chore.
+** pParent指向父页面,这使得我们可以从任意叶子Page找到root Page
 */
 struct MemPage {
   union {
-    char aDisk[SQLITE_PAGE_SIZE];  /* Page data stored on disk */
-    PageHdr hdr;                   /* Overlay page header */
+    char aDisk[SQLITE_PAGE_SIZE];  /* Page data stored on disk|Page在磁盘的顺序 */
+    PageHdr hdr;                   /* Overlay page header| 页面的头结点 */
   } u;
-  int isInit;                    /* True if auxiliary data is initialized */
-  MemPage *pParent;              /* The parent of this page.  NULL for root */
-  int nFree;                     /* Number of free bytes in u.aDisk[] */
-  int nCell;                     /* Number of entries on this page */
-  int isOverfull;                /* Some apCell[] points outside u.aDisk[] */
-  Cell *apCell[MX_CELL+2];       /* All data entires in sorted order */
+  int isInit;                    /* True if auxiliary data is initialized | 辅助信息是否初始化 */
+  MemPage *pParent;              /* The parent of this page.  NULL for root| 该页面的父页面 */
+  int nFree;                     /* Number of free bytes in u.aDisk[] | u.aDisk[]中空闲字节数 */
+  int nCell;                     /* Number of entries on this page | 这个Page中的entry(Cell}数 */
+  int isOverfull;                /* Some apCell[] points outside u.aDisk[] | 是否溢出?u.aDisk[]之外的一些apCell[] */
+  Cell *apCell[MX_CELL+2];       /* All data entires in sorted order | 这个Page中的所有Entry实体(Cell数据) */
 };
 
 /*
