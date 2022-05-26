@@ -9,3 +9,7 @@
 
 
 ### 游标(Cursor)的作用是什么?
+猜测：游标是实体(Cell/Entry)在内存中的表示.
+
+### sqlitepager_begin为什么传入pData而不是Pager?
+sqlitepager_begin只有两个地方会被调用到，分别是sqlitepager_begin和sqliteBtreeBeginTrans.

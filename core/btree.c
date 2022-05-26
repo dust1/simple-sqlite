@@ -244,10 +244,11 @@ struct CellHdr
 ** MX_LOCAL_PAYLOAD) and the Cell.ovfl value are allocated only as
 ** needed.
 */
-struct Cell {
-  CellHdr h;                        /* The cell header */
-  char aPayload[MX_LOCAL_PAYLOAD];  /* Key and data */
-  Pgno ovfl;                        /* The first overflow page */
+struct Cell
+{
+  CellHdr h;                       /* The cell header */
+  char aPayload[MX_LOCAL_PAYLOAD]; /* Key and data */
+  Pgno ovfl;                       /* The first overflow page */
 };
 
 /*
@@ -356,6 +357,7 @@ struct MemPage
 ** The in-memory image of a disk page has the auxiliary information appended
 ** to the end.  EXTRA_SIZE is the number of bytes of space needed to hold
 ** that extra information.
+** Page保存额外信息大小
 */
 #define EXTRA_SIZE (sizeof(MemPage) - SQLITE_PAGE_SIZE)
 
@@ -364,9 +366,9 @@ struct MemPage
 */
 struct Btree
 {
-  Pager *pPager;     /* The page cache | 页面缓存 */
+  Pager *pPager;     /* The page cache | 页面管理器 */
   BtCursor *pCursor; /* A list of all open cursors | 所有打开的游标的列表 */
-  PageOne *page1;    /* First page of the database | 数据库的Page头结点 */
+  PageOne *page1;    /* First page of the database | pgno为1的数据结构, 该结构为Page的data数据 */
   u8 inTrans;        /* True if a transaction is in progress | 如果一个事务正在运行，则为true */
   u8 inCkpt;         /* True if there is a checkpoint on the transaction | 如果事务上有个checkpoing则为true */
   u8 readOnly;       /* True if the underlying file is readonly | 如果数据库是只读的，则为true */
@@ -657,6 +659,8 @@ page_format_error:
 /*
 ** Set up a raw page so that it looks like a database page holding
 ** no entries.
+** 设置一个原始页面，使其看起来像一个没有条目的数据库页面
+** 
 */
 static void zeroPage(MemPage *pPage)
 {
@@ -679,6 +683,7 @@ static void zeroPage(MemPage *pPage)
 ** This routine is called when the reference count for a page
 ** reaches zero.  We need to unref the pParent pointer when that
 ** happens.
+** 当Page引用为0时，调用该函数清除相关附加信息。这部分信息主要位于MemPage中
 */
 static void pageDestructor(void *pData)
 {
@@ -705,13 +710,14 @@ static void pageDestructor(void *pData)
 int sqliteBtreeOpen(
     const char *zFilename, /* Name of the file containing the BTree database */
     int mode,              /* Not currently used */
-    int nCache,            /* How many pages in the page cache */
+    int nCache,            /* How many pages in the page cache|page缓存数量 */
     Btree **ppBtree        /* Pointer to new Btree object written here */
 )
 {
   Btree *pBt;
   int rc;
 
+  // 获取指针长度 => 64位环境下是64
   pBt = malloc(sizeof(*pBt));
   memset(pBt, 0, sizeof(*pBt));
 
@@ -720,8 +726,11 @@ int sqliteBtreeOpen(
     *ppBtree = 0;
     return SQLITE_NOMEM;
   }
+  // page缓存的最小数量为10
   if (nCache < 10)
     nCache = 10;
+
+  // 打开Pager
   rc = sqlitepager_open(&pBt->pPager, zFilename, nCache, EXTRA_SIZE);
   if (rc != SQLITE_OK)
   {
@@ -731,10 +740,14 @@ int sqliteBtreeOpen(
     *ppBtree = 0;
     return rc;
   }
+  // 设置Page引用为0时的析构函数，将附加信息从MemPage中移除
   sqlitepager_set_destructor(pBt->pPager, pageDestructor);
+
   pBt->pCursor = 0;
   pBt->page1 = 0;
   pBt->readOnly = sqlitepager_isreadonly(pBt->pPager);
+
+  // 初始化Hash对象
   sqliteHashInit(&pBt->locks, SQLITE_HASH_INT, 0);
   *ppBtree = pBt;
   return SQLITE_OK;
@@ -779,6 +792,7 @@ int sqliteBtreeSetCacheSize(Btree *pBt, int mxPage)
 /*
 ** Get a reference to page1 of the database file.  This will
 ** also acquire a readlock on that file.
+** 获取对数据库文件page1的引用。这也将获得改文件的读锁
 **
 ** SQLITE_OK is returned on success.  If the file is not a
 ** well-formed database file, then SQLITE_CORRUPT is returned.
@@ -791,18 +805,22 @@ static int lockBtree(Btree *pBt)
   int rc;
   if (pBt->page1)
     return SQLITE_OK;
+  // 获取pgno为1的Page,这个Page是特殊的
+  // 它的data数据会结构化为PageOne结构体
   rc = sqlitepager_get(pBt->pPager, 1, (void **)&pBt->page1);
   if (rc != SQLITE_OK)
     return rc;
 
   /* Do some checking to help insure the file we opened really is
   ** a valid database file.
+  ** 做一些检查帮助我们确认打开的文件确实是一个数据库文件
   */
   if (sqlitepager_pagecount(pBt->pPager) > 0)
   {
     PageOne *pP1 = pBt->page1;
     if (strcmp(pP1->zMagic, zMagicHeader) != 0 || pP1->iMagic != MAGIC)
     {
+      // 标头校验
       rc = SQLITE_CORRUPT;
       goto page1_init_failed;
     }
@@ -839,18 +857,21 @@ static void unlockBtreeIfUnused(Btree *pBt)
 /*
 ** Create a new database by initializing the first two pages of the
 ** file.
+** 通过初始化文件的前两个Page创建一个新的数据库
 */
 static int newDatabase(Btree *pBt)
 {
   MemPage *pRoot;
   PageOne *pP1;
   int rc;
+  // 如果Page数量大于1则直接返回
   if (sqlitepager_pagecount(pBt->pPager) > 1)
     return SQLITE_OK;
   pP1 = pBt->page1;
   rc = sqlitepager_write(pBt->page1);
   if (rc)
     return rc;
+  // 获取pgno=2的Page
   rc = sqlitepager_get(pBt->pPager, 2, (void **)&pRoot);
   if (rc)
     return rc;
@@ -860,8 +881,10 @@ static int newDatabase(Btree *pBt)
     sqlitepager_unref(pRoot);
     return rc;
   }
+  // 写入校验头
   strcpy(pP1->zMagic, zMagicHeader);
   pP1->iMagic = MAGIC;
+  // 初始化root节点
   zeroPage(pRoot);
   sqlitepager_unref(pRoot);
   return SQLITE_OK;
@@ -869,10 +892,13 @@ static int newDatabase(Btree *pBt)
 
 /*
 ** Attempt to start a new transaction.
+** 尝试开始一个新事物
 **
 ** A transaction must be started before attempting any changes
 ** to the database.  None of the following routines will work
 ** unless a transaction is started first:
+** 在对数据库进行任何更改前都必须启动事物。
+** 如果没有,则以下方法都无效
 **
 **      sqliteBtreeCreateTable()
 **      sqliteBtreeCreateIndex()
@@ -889,6 +915,7 @@ int sqliteBtreeBeginTrans(Btree *pBt)
     return SQLITE_ERROR;
   if (pBt->page1 == 0)
   {
+    // 获取pgno=1的Page的读权限，并对文件进行标头校验
     rc = lockBtree(pBt);
     if (rc != SQLITE_OK)
     {
@@ -901,12 +928,15 @@ int sqliteBtreeBeginTrans(Btree *pBt)
   }
   else
   {
+    // 开启Page事务
     rc = sqlitepager_begin(pBt->page1);
     if (rc == SQLITE_OK)
     {
+      // 如果事务开启成功则创建一个新的数据库
       rc = newDatabase(pBt);
     }
   }
+
   if (rc == SQLITE_OK)
   {
     pBt->inTrans = 1;
