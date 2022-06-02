@@ -256,11 +256,14 @@ struct Cell
 ** structures.  Space on a database page is allocated in increments of
 ** at least 4 bytes and is always aligned to a 4-byte boundry.  The
 ** linked list of FreeBlks is always kept in order by address.
+** 使用 FreeBlk 结构的链表来记住页面上的可用空间。 
+** 数据库页面上的空间以至少 4 个字节的增量分配，并且始终与 4 个字节的边界对齐。 
+** FreeBlks 的链表总是按地址顺序排列的。
 */
 struct FreeBlk
 {
-  u16 iSize; /* Number of bytes in this block of free space */
-  u16 iNext; /* Index in MemPage.u.aDisk[] of the next free block */
+  u16 iSize; /* Number of bytes in this block of free space|这个block的空闲大小 */
+  u16 iNext; /* Index in MemPage.u.aDisk[] of the next free block| */
 };
 
 /*
@@ -664,16 +667,24 @@ page_format_error:
 */
 static void zeroPage(MemPage *pPage)
 {
+  // 新建PageHdr和FreeBlk对象
   PageHdr *pHdr;
   FreeBlk *pFBlk;
+
   assert(sqlitepager_iswriteable(pPage));
+  // 先清理pPage
   memset(pPage, 0, SQLITE_PAGE_SIZE);
+
+  // 设置该Page的Hdr
   pHdr = &pPage->u.hdr;
   pHdr->firstCell = 0;
   pHdr->firstFree = sizeof(*pHdr);
+
+  // 
   pFBlk = (FreeBlk *)&pHdr[1];
   pFBlk->iNext = 0;
   pFBlk->iSize = SQLITE_PAGE_SIZE - sizeof(*pHdr);
+
   pPage->nFree = pFBlk->iSize;
   pPage->nCell = 0;
   pPage->isOverfull = 0;
@@ -1793,11 +1804,14 @@ int sqliteBtreeNext(BtCursor *pCur, int *pRes)
 
 /*
 ** Allocate a new page from the database file.
+** 从数据库文件中分配一个新的Page
 **
 ** The new page is marked as dirty.  (In other words, sqlitepager_write()
 ** has already been called on the new page.)  The new page has also
 ** been referenced and the calling routine is responsible for calling
 ** sqlitepager_unref() on the new page when it is done.
+** 新的Page被标记为脏页。(已经对这个Page调用了sqlitepager_write()方法).
+** 新的Page也已被引用,调用程序负责在新的Page上调用sqlitepager_unref()
 **
 ** SQLITE_OK is returned on success.  Any other return value indicates
 ** an error.  *ppPage and *pPgno are undefined in the event of an error.
@@ -1807,8 +1821,10 @@ static int allocatePage(Btree *pBt, MemPage **ppPage, Pgno *pPgno)
 {
   PageOne *pPage1 = pBt->page1;
   int rc;
+  // printf("allocatePage - pPage1.freeList =>> %d\n", pPage1->freeList);
   if (pPage1->freeList)
   {
+    printf("是否溢出?");
     OverflowPage *pOvfl;
     FreelistInfo *pInfo;
 
@@ -1847,7 +1863,9 @@ static int allocatePage(Btree *pBt, MemPage **ppPage, Pgno *pPgno)
   }
   else
   {
+    // 获取当前pPgaer的Page个数
     *pPgno = sqlitepager_pagecount(pBt->pPager) + 1;
+    printf("分配一个新的Page,pgno:%d \n", *pPgno);
     rc = sqlitepager_get(pBt->pPager, *pPgno, (void **)ppPage);
     if (rc)
       return rc;
@@ -2886,14 +2904,19 @@ int sqliteBtreeDelete(BtCursor *pCur)
 /*
 ** Create a new BTree table.  Write into *piTable the page
 ** number for the root page of the new table.
+** 创建一个新的BTree表.
+** 写入到piTable指针的是这个新table的root页面编号
 **
 ** In the current implementation, BTree tables and BTree indices are the
 ** the same.  But in the future, we may change this so that BTree tables
 ** are restricted to having a 4-byte integer key and arbitrary data and
 ** BTree indices are restricted to having an arbitrary key and no data.
+** 在当前实现中,BTree表和BTree索引是相同的。在未来，我们可能会改变这一点,
+** 使BTree表被限制为4个字节整数key和任意数据，而BTree索引被限制为具有任意key并且没有数据
 */
 int sqliteBtreeCreateTable(Btree *pBt, int *piTable)
 {
+  // root Page的结构实例,这个对象的内存是Page的data部分
   MemPage *pRoot;
   Pgno pgnoRoot;
   int rc;
@@ -2905,10 +2928,12 @@ int sqliteBtreeCreateTable(Btree *pBt, int *piTable)
   {
     return SQLITE_READONLY;
   }
+  //分配一个新的Page,这里分配得到的Page将会作为BTree的root节点
   rc = allocatePage(pBt, &pRoot, &pgnoRoot);
   if (rc)
     return rc;
   assert(sqlitepager_iswriteable(pRoot));
+
   zeroPage(pRoot);
   sqlitepager_unref(pRoot);
   *piTable = (int)pgnoRoot;
