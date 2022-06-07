@@ -13,3 +13,6 @@
 
 ### sqlitepager_begin为什么传入pData而不是Pager?
 sqlitepager_begin只有两个地方会被调用到，分别是sqlitepager_begin和sqliteBtreeBeginTrans.
+
+### MemPage中的n为什么要以结构体的形式?不能拆分或者以另一个结构体对象的形式嘛?
+1. 不已另一个对象的形式：为了在序列化反序列话的时候将结构体的数据也加入到其中
