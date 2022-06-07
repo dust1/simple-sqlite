@@ -24,6 +24,7 @@ int main() {
     // testCommit(&fileLocation);
 
     /* Tests for Btree functionality */
-    testBtree(&fileLocation);
+    // testBtree(&fileLocation);
+    testBtree1(&fileLocation);
     return 0;
 }
