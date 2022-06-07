@@ -17,13 +17,14 @@ void testBtree(char **fileLocation)
 
     int iTable;
     sqliteBtreeBeginTrans(pBt);
-    //创建一张新表,这里的table是数据库的table吗
+    //创建一张新表,这里的table是数据库的table吗?
     rc = sqliteBtreeCreateTable(pBt, &iTable); // Create new table and return table id to iTable
     printf("Root Page id: %d\n", iTable);
     sqliteBtreeCommit(pBt); // Commit changes to file system
 
     BtCursor *pCur;
     int wrFlag = 1;                                     // Read and write
+    // 在这个BTree Table上创建一个读写游标
     rc = sqliteBtreeCursor(pBt, iTable, wrFlag, &pCur); // Get cursor to Btree
 
     char *keyToWrote = "key1";

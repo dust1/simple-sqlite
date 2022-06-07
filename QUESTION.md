@@ -9,9 +9,20 @@
 
 
 ### 游标(Cursor)的作用是什么?
-猜测：游标是实体(Cell/Entry)在内存中的表示.
+游标是BTree Table中的一种指针，分为只读和读写两种。在一个BTree Table中，只允许存在一个读写游标，允许存在两个或多个只读游标。
+> 可能是通过游标来控制对BTree Table的读写权限
+
+用户在插入数据的时候也是向游标指向的Table中进行插入
+
 
 ### sqlitepager_begin为什么传入pData而不是Pager?
 sqlitepager_begin只有两个地方会被调用到，分别是sqlitepager_begin和sqliteBtreeBeginTrans.
 
-### 
+### B+Tree是如何与Page关联上的
+1. pgno=1: 这个Page的data属于PageOne结构体。当调用lockBtree函数的时候会尝试创建该Page并将Btree的page1指向这个Page结构化后的data
+2. pgno=2: 这个Page会在newDatabase方法中创建。但是这个Page也不会作为Btree的root节点。
+3. pgno=3: 从这个Page开始才正式构建BTree,newDatabase后会调用sqliteBtreeCreateTable,该方法会创建当前pagecount+1的下一个Page，也就是pgno=3作为当前BTree的root节点.
+> 这里创建的Table为BTree Table，和数据库的表(Table)不是同一个
+#### newDatabase的时候的会创建pgno=2的Page，这个Page的作用是什么?
+
+#### 其他Page要如何组合成为BTree呢?

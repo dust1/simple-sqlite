@@ -256,8 +256,8 @@ struct Cell
 ** structures.  Space on a database page is allocated in increments of
 ** at least 4 bytes and is always aligned to a 4-byte boundry.  The
 ** linked list of FreeBlks is always kept in order by address.
-** 使用 FreeBlk 结构的链表来记住页面上的可用空间。 
-** 数据库页面上的空间以至少 4 个字节的增量分配，并且始终与 4 个字节的边界对齐。 
+** 使用 FreeBlk 结构的链表来记住页面上的可用空间。
+** 数据库页面上的空间以至少 4 个字节的增量分配，并且始终与 4 个字节的边界对齐。
 ** FreeBlks 的链表总是按地址顺序排列的。
 */
 struct FreeBlk
@@ -663,7 +663,7 @@ page_format_error:
 ** Set up a raw page so that it looks like a database page holding
 ** no entries.
 ** 设置一个原始页面，使其看起来像一个没有条目的数据库页面
-** 
+** 对MemPage初始化
 */
 static void zeroPage(MemPage *pPage)
 {
@@ -680,7 +680,6 @@ static void zeroPage(MemPage *pPage)
   pHdr->firstCell = 0;
   pHdr->firstFree = sizeof(*pHdr);
 
-  // 
   pFBlk = (FreeBlk *)&pHdr[1];
   pFBlk->iNext = 0;
   pFBlk->iSize = SQLITE_PAGE_SIZE - sizeof(*pHdr);
@@ -803,7 +802,7 @@ int sqliteBtreeSetCacheSize(Btree *pBt, int mxPage)
 /*
 ** Get a reference to page1 of the database file.  This will
 ** also acquire a readlock on that file.
-** 获取对数据库文件page1的引用。这也将获得改文件的读锁
+** 获取对数据库文件page1的引用。这也将获得该文件的读锁
 **
 ** SQLITE_OK is returned on success.  If the file is not a
 ** well-formed database file, then SQLITE_CORRUPT is returned.
@@ -818,6 +817,10 @@ static int lockBtree(Btree *pBt)
     return SQLITE_OK;
   // 获取pgno为1的Page,这个Page是特殊的
   // 它的data数据会结构化为PageOne结构体
+
+  /**
+   * 在lockBtree中会获取pgno为1的Page,其data部分数据会被结构化为PageOne结构体
+   */
   rc = sqlitepager_get(pBt->pPager, 1, (void **)&pBt->page1);
   if (rc != SQLITE_OK)
     return rc;
@@ -826,8 +829,11 @@ static int lockBtree(Btree *pBt)
   ** a valid database file.
   ** 做一些检查帮助我们确认打开的文件确实是一个数据库文件
   */
-  if (sqlitepager_pagecount(pBt->pPager) > 0)
+  int page_count = sqlitepager_pagecount(pBt->pPager);
+  printf("page count ====> %d\n", page_count);
+  if (page_count > 0)
   {
+    // 第一次进入该方法的时候虽然生成了pgno=1的Page，但是这个page还没有commit,此时page count为0
     PageOne *pP1 = pBt->page1;
     if (strcmp(pP1->zMagic, zMagicHeader) != 0 || pP1->iMagic != MAGIC)
     {
@@ -875,8 +881,11 @@ static int newDatabase(Btree *pBt)
   MemPage *pRoot;
   PageOne *pP1;
   int rc;
-  // 如果Page数量大于1则直接返回
-  if (sqlitepager_pagecount(pBt->pPager) > 1)
+  // 如果Page数量大于1则直接返回,第一次调用的时候,由于pager还没有commit。
+  // 此时page的数量为0
+  int page_count = sqlitepager_pagecount(pBt->pPager);
+  printf("[newDatabase] page_count =====> %d\n", page_count);
+  if (page_count > 1)
     return SQLITE_OK;
   pP1 = pBt->page1;
   rc = sqlitepager_write(pBt->page1);
@@ -1080,13 +1089,19 @@ int sqliteBtreeRollbackCkpt(Btree *pBt)
 ** Create a new cursor for the BTree whose root is on the page
 ** iTable.  The act of acquiring a cursor gets a read lock on
 ** the database file.
+** 为BTree的root节点创建一个新的光标，获取游标的行为会在数据库文件上获得读锁.
+** 此时一个这个游标应该指向root Page
 **
 ** If wrFlag==0, then the cursor can only be used for reading.
 ** If wrFlag==1, then the cursor can be used for reading or writing.
+** 如果wrFlag==0,则光标只能用来读取。如果wrFlag==1,则光标可用于读写
+** 
 ** A read/write cursor requires exclusive access to its table.  There
 ** cannot be two or more cursors open on the same table if any one of
 ** cursors is a read/write cursor.  But there can be two or more
 ** read-only cursors open on the same table.
+** 一个读写光标需要独占表。不能在同一张表上打开两个或多个读写游标。
+** 但是可以在同一张表上打开两个或多个只读游标
 **
 ** No checking is done to make sure that page iTable really is the
 ** root page of a b-tree.  If it is not, then the cursor acquired
@@ -1832,6 +1847,7 @@ static int allocatePage(Btree *pBt, MemPage **ppPage, Pgno *pPgno)
     if (rc)
       return rc;
     pPage1->nFree--;
+    printf("[allocatePage] pPage1->freeList ==> %d \n", pPage1->freeList);
     rc = sqlitepager_get(pBt->pPager, pPage1->freeList, (void **)&pOvfl);
     if (rc)
       return rc;
@@ -2739,14 +2755,18 @@ balance_cleanup:
 
 /*
 ** Insert a new record into the BTree.  The key is given by (pKey,nKey)
-** and the data is given by (pData,nData).  The cursor is used only to
-** define what database the record should be inserted into.  The cursor
+** and the data is given by (pData,nData).  
+**
+** The cursor is used only to define what database 
+** the record should be inserted into.  The cursor
 ** is left pointing at the new record.
+** 游标仅用于定义记录应该插入的数据库。
+** 游标左指针指向这条新的记录
 */
 int sqliteBtreeInsert(
-    BtCursor *pCur,              /* Insert data into the table of this cursor */
-    const void *pKey, int nKey,  /* The key of the new record */
-    const void *pData, int nData /* The data of the new record */
+    BtCursor *pCur,              /* Insert data into the table of this cursor | 向该游标指向的Table插入数据 */
+    const void *pKey, int nKey,  /* The key of the new record | key的数据指针以及数据长度 */
+    const void *pData, int nData /* The data of the new record | value的数据指针以及数据长度 */
 )
 {
   Cell newCell;
