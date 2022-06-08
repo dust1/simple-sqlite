@@ -225,6 +225,7 @@ struct CellHdr
 ** The maximum amount of payload (in bytes) that can be stored locally for
 ** a database entry.  If the entry contains more data than this, the
 ** extra goes onto overflow pages.
+** 一个数据库条目在本地存储的最大数据量，如果条目的数据超过这条,则溢出的数据进入溢出页面
 **
 ** This number is chosen so that at least 4 cells will fit on every page.
 */
@@ -1095,7 +1096,7 @@ int sqliteBtreeRollbackCkpt(Btree *pBt)
 ** If wrFlag==0, then the cursor can only be used for reading.
 ** If wrFlag==1, then the cursor can be used for reading or writing.
 ** 如果wrFlag==0,则光标只能用来读取。如果wrFlag==1,则光标可用于读写
-** 
+**
 ** A read/write cursor requires exclusive access to its table.  There
 ** cannot be two or more cursors open on the same table if any one of
 ** cursors is a read/write cursor.  But there can be two or more
@@ -1674,6 +1675,7 @@ int sqliteBtreeLast(BtCursor *pCur, int *pRes)
 
 /* Move the cursor so that it points to an entry near pKey.
 ** Return a success code.
+** 移动光标，使其指向pKey附近的条目.返回成功代码
 **
 ** If an exact match is not found, then the cursor is always
 ** left pointing at a leaf page which would hold the entry if it
@@ -2003,6 +2005,9 @@ static int clearCell(Btree *pBt, Cell *pCell)
 /*
 ** Create a new cell from key and data.  Overflow pages are allocated as
 ** necessary and linked to this cell.
+** 根据给定的key/value创建一个新的Cell.
+** 溢出Page根据需要分配并链接到这个cell
+**
 */
 static int fillInCell(
     Btree *pBt,                  /* The whole Btree.  Needed to allocate pages */
@@ -2019,15 +2024,20 @@ static int fillInCell(
   const char *pPayload;
   char *pSpace;
 
+  // 设置CellHdr
   pCell->h.leftChild = 0;
+  // key的长度最长为16字节
   pCell->h.nKey = nKey & 0xffff;
   pCell->h.nKeyHi = nKey >> 16;
+  // data的长度最长为16字节
   pCell->h.nData = nData & 0xffff;
   pCell->h.nDataHi = nData >> 16;
   pCell->h.iNext = 0;
 
   pNext = &pCell->ovfl;
   pSpace = pCell->aPayload;
+
+  // 这个Cell能保存的最大数据
   spaceLeft = MX_LOCAL_PAYLOAD;
   pPayload = pKey;
   pKey = 0;
@@ -2035,8 +2045,14 @@ static int fillInCell(
   pPrior = 0;
   while (nPayload > 0)
   {
+    printf("[fillInCell] spaceLeft =====> %d\n", spaceLeft);
     if (spaceLeft == 0)
     {
+      /**
+       * 溢出页面与Cell相对应,当一条记录(包含key和data)无法完全保存在Cell中的时候,
+       * 则分配一个Page作为溢出页面,这个页面的空闲会比Cell大得多(1020).
+       */
+      // 游标指向的Page空间耗尽，需要分配一个新的Page
       rc = allocatePage(pBt, (MemPage **)&pOvfl, pNext);
       if (rc)
       {
@@ -2053,23 +2069,34 @@ static int fillInCell(
       spaceLeft = OVERFLOW_SIZE;
       pSpace = pOvfl->aPayload;
       pNext = &pOvfl->iNext;
+      printf("[fillInCell] OVERFLOW_SIZE ====> %d, pOvfl->aPayload ===> %p\n", spaceLeft, pSpace);
     }
+
     n = nPayload;
-    if (n > spaceLeft)
+    if (n > spaceLeft) // 如果key的长度超过spaceLeft,则固定为spaceLeft，多余的部分放到溢出Page
       n = spaceLeft;
+    // 将key复制到cell的payload中
     memcpy(pSpace, pPayload, n);
+    // 检查是否有剩余的key没有被写入
     nPayload -= n;
     if (nPayload == 0 && pData)
     {
+      // 全部写入成功,将nPayload和pPayload指向data
       pPayload = pData;
       nPayload = nData;
       pData = 0;
     }
     else
     {
+      // 还有剩余的key没写入,将pPayload指针移动到剩余的部分
+      // nPayload已经在前面减去n了
+      // 现在pPayload和nPayload都指向key的剩余数据段与剩余长度
       pPayload += n;
     }
+
+    // 剩余空间减去n
     spaceLeft -= n;
+    // 一口空间加上n
     pSpace += n;
   }
   *pNext = 0;
@@ -2755,9 +2782,9 @@ balance_cleanup:
 
 /*
 ** Insert a new record into the BTree.  The key is given by (pKey,nKey)
-** and the data is given by (pData,nData).  
+** and the data is given by (pData,nData).
 **
-** The cursor is used only to define what database 
+** The cursor is used only to define what database
 ** the record should be inserted into.  The cursor
 ** is left pointing at the new record.
 ** 游标仅用于定义记录应该插入的数据库。
@@ -2778,16 +2805,23 @@ int sqliteBtreeInsert(
 
   if (pCur->pPage == 0)
   {
+    // rollback 破坏了这个游标,该游标没有指向具体的Page
     return SQLITE_ABORT; /* A rollback destroyed this cursor */
   }
+
   if (!pCur->pBt->inTrans || nKey + nData == 0)
   {
+    // 尚未开启一个BTree事务
     return SQLITE_ERROR; /* Must start a transaction first */
   }
+
   if (!pCur->wrFlag)
   {
+    // 这个游标不是读写游标,无法写入数据
     return SQLITE_PERM; /* Cursor not open for writing */
   }
+
+  // 将光标移动到要写入的key附近的条目
   rc = sqliteBtreeMoveto(pCur, pKey, nKey, &loc);
   if (rc)
     return rc;
