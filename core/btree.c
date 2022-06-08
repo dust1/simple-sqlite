@@ -405,6 +405,9 @@ struct BtCursor
 ** local payload storage, and the pointer to overflow pages (if
 ** applicable).  Additional space allocated on overflow pages
 ** is NOT included in the value returned from this routine.
+** 计算一个cell在数据库页面上需要的总字节数。返回的数字包括Cell标头、
+** 本地有效负载存储和指向溢出页面的指针大小。
+** 该函数返回的大小不包括在溢出页面上分配的额外空间.
 */
 static int cellSize(Cell *pCell)
 {
@@ -467,10 +470,12 @@ static void defragmentPage(MemPage *pPage)
 /*
 ** Allocate nByte bytes of space on a page.  nByte must be a
 ** multiple of 4.
+** 在页面上分配nByte字节空间。nByte必须是4的倍数
 **
 ** Return the index into pPage->u.aDisk[] of the first byte of
 ** the new allocation. Or return 0 if there is not enough free
 ** space on the page to satisfy the allocation request.
+** 返回的是这个Cell在Page的索引,这个索引放就是pPage->u.aDisk[]中的下标
 **
 ** If the page contains nBytes of free space but does not contain
 ** nBytes of contiguous free space, then this routine automatically
@@ -1689,12 +1694,15 @@ int sqliteBtreeLast(BtCursor *pCur, int *pRes)
 **
 **     *pRes<0      The cursor is left pointing at an entry that
 **                  is smaller than pKey.
+**                  光标指向一个小于pKey的条目
 **
 **     *pRes==0     The cursor is left pointing at an entry that
 **                  exactly matches pKey.
+**                  光标指向与pKey完全匹配的条目
 **
 **     *pRes>0      The cursor is left pointing at an entry that
 **                  is larger than pKey.
+**                  光标指向一个大于pKey的条目
 */
 int sqliteBtreeMoveto(BtCursor *pCur, const void *pKey, int nKey, int *pRes)
 {
@@ -1973,6 +1981,7 @@ static int freePage(Btree *pBt, void *pPage, Pgno pgno)
 /*
 ** Erase all the data out of a cell.  This involves returning overflow
 ** pages back the freelist.
+** 擦除单元格内的错有数据。这会将溢出页面返回到空闲列表
 */
 static int clearCell(Btree *pBt, Cell *pCell)
 {
@@ -2182,6 +2191,7 @@ static void dropCell(MemPage *pPage, int idx, int sz)
 /*
 ** Insert a new cell on pPage at cell index "i".  pCell points to the
 ** content of the cell.
+** 在pPage上的单元格索引i处插入一个新的单元格。pCell指向单元格的内容
 **
 ** If the cell content will fit on the page, then put it there.  If it
 ** will not fit, then just make pPage->apCell[i] point to the content
@@ -2198,6 +2208,7 @@ static void insertCell(MemPage *pPage, int i, Cell *pCell, int sz)
   assert(i >= 0 && i <= pPage->nCell);
   assert(sz == cellSize(pCell));
   assert(sqlitepager_iswriteable(pPage));
+  // 在这个Page中分配Cell空间(包括溢出页面的pgno，不包括溢出页面的数据)
   idx = allocateSpace(pPage, sz);
   for (j = pPage->nCell; j > i; j--)
   {
@@ -2211,6 +2222,7 @@ static void insertCell(MemPage *pPage, int i, Cell *pCell, int sz)
   }
   else
   {
+    // 在Pager对应索引位置写入Cell内容
     memcpy(&pPage->u.aDisk[idx], pCell, sz);
     pPage->apCell[i] = (Cell *)&pPage->u.aDisk[idx];
   }
@@ -2829,13 +2841,19 @@ int sqliteBtreeInsert(
   rc = sqlitepager_write(pPage);
   if (rc)
     return rc;
+  // 将数据写入到Cell中
   rc = fillInCell(pBt, &newCell, pKey, nKey, pData, nData);
   if (rc)
     return rc;
+  // 获取这个cell在数据库空间上的大小(不包括溢出页面分配的空间)
   szNew = cellSize(&newCell);
   if (loc == 0)
   {
+    // 光标指向与pKey相同的条目
+
+    // 新的Cell替代旧的条目,并将原来的Cell清理掉
     newCell.h.leftChild = pPage->apCell[pCur->idx]->h.leftChild;
+
     rc = clearCell(pBt, pPage->apCell[pCur->idx]);
     if (rc)
       return rc;
@@ -2843,13 +2861,18 @@ int sqliteBtreeInsert(
   }
   else if (loc < 0 && pPage->nCell > 0)
   {
-    assert(pPage->u.hdr.rightChild == 0); /* Must be a leaf page */
+    
+    // 光标指向小于pKey的条目
+    assert(pPage->u.hdr.rightChild == 0); /* Must be a leaf page|必须是一个叶子Page */
     pCur->idx++;
   }
   else
   {
-    assert(pPage->u.hdr.rightChild == 0); /* Must be a leaf page */
+    // 光标指向大于pKey的条目
+    assert(pPage->u.hdr.rightChild == 0); /* Must be a leaf page|必须是一个叶子Page */
   }
+
+
   insertCell(pPage, pCur->idx, &newCell, szNew);
   rc = balance(pCur->pBt, pPage, pCur);
   /* sqliteBtreePageDump(pCur->pBt, pCur->pgnoRoot, 1); */

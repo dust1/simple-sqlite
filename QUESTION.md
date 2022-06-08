@@ -30,6 +30,7 @@ sqlitepager_begin只有两个地方会被调用到，分别是sqlitepager_begin�
 #### cell与Page的关联
 当插入一条记录的时候，记录的key与value会组合为一个Cell,但是这个Cell的大小只有236字节,当记录的大小超过之后会创建一个溢出页面用来保存剩余数据,溢出页面的大小为1020字节.
 而记录中key和data的长度信息记录在Cell的CellHdr中.key和data的长度最长为16字节(65535)
+保存Cell的时候只需要保存Cell自身的数据，这些数据包括溢出页面的pgno,但不包括溢出页面的数据。溢出页面作为一个单独的Page有pager独立管理。
 
 #### newDatabase的时候的会创建pgno=2的Page，这个Page的作用是什么?
 
