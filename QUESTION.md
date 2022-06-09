@@ -26,6 +26,12 @@ sqlitepager_begin只有两个地方会被调用到，分别是sqlitepager_begin�
 2. pgno=2: 这个Page会在newDatabase方法中创建。但是这个Page也不会作为Btree的root节点。
 3. pgno=3: 从这个Page开始才正式构建BTree,newDatabase后会调用sqliteBtreeCreateTable,该方法会创建当前pagecount+1的下一个Page，也就是pgno=3作为当前BTree的root节点.
 > 这里创建的Table为BTree Table，和数据库的表(Table)不是同一个
+
+#### cell与Page的关联
+当插入一条记录的时候，记录的key与value会组合为一个Cell,但是这个Cell的大小只有236字节,当记录的大小超过之后会创建一个溢出页面用来保存剩余数据,溢出页面的大小为1020字节.
+而记录中key和data的长度信息记录在Cell的CellHdr中.key和data的长度最长为16字节(65535)
+保存Cell的时候只需要保存Cell自身的数据，这些数据包括溢出页面的pgno,但不包括溢出页面的数据。溢出页面作为一个单独的Page有pager独立管理。
+
 #### newDatabase的时候的会创建pgno=2的Page，这个Page的作用是什么?
 
 #### 其他Page要如何组合成为BTree呢?
