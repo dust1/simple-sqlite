@@ -748,6 +748,7 @@ int sqliteBtreeOpen(
 
   // 打开Pager
   rc = sqlitepager_open(&pBt->pPager, zFilename, nCache, EXTRA_SIZE);
+
   if (rc != SQLITE_OK)
   {
     if (pBt->pPager)
@@ -2862,7 +2863,7 @@ int sqliteBtreeInsert(
   }
   else if (loc < 0 && pPage->nCell > 0)
   {
-    
+
     // 光标指向小于pKey的条目
     assert(pPage->u.hdr.rightChild == 0); /* Must be a leaf page|必须是一个叶子Page */
     pCur->idx++;
@@ -2873,7 +2874,7 @@ int sqliteBtreeInsert(
     assert(pPage->u.hdr.rightChild == 0); /* Must be a leaf page|必须是一个叶子Page */
   }
 
-
+  // 将Cell写入到Page中
   insertCell(pPage, pCur->idx, &newCell, szNew);
   rc = balance(pCur->pBt, pPage, pCur);
   /* sqliteBtreePageDump(pCur->pBt, pCur->pgnoRoot, 1); */
