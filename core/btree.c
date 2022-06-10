@@ -756,6 +756,7 @@ int sqliteBtreeOpen(
     *ppBtree = 0;
     return rc;
   }
+
   // 设置Page引用为0时的析构函数，将附加信息从MemPage中移除
   sqlitepager_set_destructor(pBt->pPager, pageDestructor);
 
