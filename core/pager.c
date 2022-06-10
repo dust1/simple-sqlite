@@ -1033,7 +1033,7 @@ int sqlitepager_get(Pager *pPager, Pgno pgno, void **ppPage)
 		{
 			// pager中还能创建新的page，则直接创建
 			/* Create a new page */
-			// 新建一个PgHdr,这里请求分配的内存空间大小为：PgHdr结构体大小+PAGE_SIZE+额外空间大小
+			// 新建一个PgHdr,这里请求分配的内存空间大小为：PgHdrz指针大小+PAGE_SIZE+额外空间大小
 			pPg = malloc(sizeof(*pPg) + SQLITE_PAGE_SIZE + pPager->nExtra);
 			memset(pPg, 0, sizeof(*pPg) + SQLITE_PAGE_SIZE + pPager->nExtra);
 			if (pPg == 0)

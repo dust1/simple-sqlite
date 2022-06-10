@@ -733,6 +733,7 @@ int sqliteBtreeOpen(
   Btree *pBt;
   int rc;
 
+  printf("[testBtree1] MemPage sizeof => %d\n", sizeof(MemPage));
   // 获取指针长度 => 64位环境下是64
   pBt = malloc(sizeof(*pBt));
   memset(pBt, 0, sizeof(*pBt));
