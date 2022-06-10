@@ -119,7 +119,7 @@ struct Pager
 	int dbSize;					 /* Number of pages in the file| 数据库文件中Page的数量 */
 	int origDbSize;				 /* dbSize before the current change |本次修改前的数据库大小 */
 	int ckptSize, ckptJSize;	 /* Size of database and journal at ckpt_begin()| 数据库大小和检查点的偏移量? 这里的数据库大小和上一个origDbSize有什么区别吗?  */
-	int nExtra;					 /* Add this many bytes to each in-memory page | 用户额外数据大小 */
+	int nExtra;					 /* Add this many bytes to each in-memory page | 用户额外数据大小,这个额外数据就是当Page加载到内存中用于描述data的MemPage结构体大小 */
 	void (*xDestructor)(void *); /* Call this routine when freeing pages | 释放Page时调用该函数。 释放是指从Page链表中将这个Page移除吗?*/
 	int nPage;					 /* Total number of in-memory pages| 在内存中的Page总数量 */
 	int nRef;					 /* Number of in-memory pages with PgHdr.nRef>0 | 引用数大于0的Page数量 */

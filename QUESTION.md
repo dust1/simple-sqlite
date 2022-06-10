@@ -35,3 +35,13 @@ sqlitepager_begin只有两个地方会被调用到，分别是sqlitepager_begin�
 #### newDatabase的时候的会创建pgno=2的Page，这个Page的作用是什么?
 
 #### 其他Page要如何组合成为BTree呢?
+
+### MemPage与Page是如何关联的
+MemPage是保存在磁盘中的Page在内存中的结构。
+一个MemPage包括描述参数以及data本身，由于data本身占据了1024字节的长度，因此一个MemPage的大小比SQLITE_PAGE_SIZE要大，在打开数据库的时候对page的EXTRA_SIZE就是MemPage描述信息的大小：
+```
+#define EXTRA_SIZE (sizeof(MemPage) - SQLITE_PAGE_SIZE)
+```
+这里表示page的额外信息等于MemPage大小减去包含其中的data部分后剩余的大小。
+而EXTRA_SIZE是在内存中分配的。并不会记录到磁盘中，Page在磁盘中的大小始终是SQLITE_PAGE_SIZE
+

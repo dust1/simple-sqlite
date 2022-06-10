@@ -309,7 +309,7 @@ struct FreelistInfo
 ** auxiliary info is only valid for regular database pages - it is not
 ** used for overflow pages and pages on the freelist.
 ** 对于数据库中的每一个Page，都采用以下的数据结构实例存储在内存中.
-** u.aDisk[]数组包含从磁盘读取的原始位。(Page在磁盘上的顺序,这个顺序不一定是按照pgno来排列的)
+** u.aDisk[]数组包含从磁盘读取的原始数据(即Page的data部分，大小为SQLITE_PAGE_SIZE)
 ** 其余的是仅保存在内存中的辅助信息，辅助信息仅对常规Page有效，它不适用于
 ** 溢出页面和空闲列表上的页面
 **
@@ -344,9 +344,9 @@ struct FreelistInfo
 */
 struct MemPage
 {
-  union
+  union   // union - C的union,里面的元素共用同一段内存空间,长度为最长元素的大小,只能使用一个元素.类似于enum
   {
-    char aDisk[SQLITE_PAGE_SIZE]; /* Page data stored on disk|Page在磁盘的顺序 */
+    char aDisk[SQLITE_PAGE_SIZE]; /* Page data stored on disk| 存储在磁盘中的Page.data */
     PageHdr hdr;                  /* Overlay page header| 页面的头结点 */
   } u;
   int isInit;                /* True if auxiliary data is initialized | 辅助信息是否初始化 */
@@ -2222,8 +2222,11 @@ static void insertCell(MemPage *pPage, int i, Cell *pCell, int sz)
   }
   else
   {
-    // 在Pager对应索引位置写入Cell内容
+    // 将cell写入到page数据中,aDisk就是实际存储在磁盘上的Page数据
     memcpy(&pPage->u.aDisk[idx], pCell, sz);
+    // 在apCell中将cell对应的序号指向aDisk中的数据内容
+    // 可以根据Page中某个Cell的序号,通过apCell[i]获取到Cell在aDisk中的起始地址
+    // 然后可以在aDisk中获取到Cell
     pPage->apCell[i] = (Cell *)&pPage->u.aDisk[idx];
   }
 }
