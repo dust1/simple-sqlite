@@ -1373,10 +1373,15 @@ int sqlitepager_unref(void *pData)
 */
 int sqlitepager_begin(void *pData)
 {
+	/**
+	 * 传入的是从磁盘读取的data
+	 * 这两行的目的是通过传入的data指针获取到PgHdr和Pager指针
+	 */
 	// 根据数据指针获取拥有这个数据的Page指针
 	PgHdr *pPg = DATA_TO_PGHDR(pData);
 	// 获取Pager指针
 	Pager *pPager = pPg->pPager;
+
 	int rc = SQLITE_OK;
 	assert(pPg->nRef > 0);
 	assert(pPager->state != SQLITE_UNLOCK);

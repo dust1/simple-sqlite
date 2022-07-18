@@ -826,7 +826,7 @@ static int lockBtree(Btree *pBt)
     return SQLITE_OK;
   // 获取pgno为1的Page,这个Page是特殊的
   // 它的data数据会结构化为PageOne结构体
-
+  printf("[lockBTree] page1 sizeof = %d\n", sizeof(PageOne));
   /**
    * 在lockBtree中会获取pgno为1的Page,其data部分数据会被结构化为PageOne结构体
    */
@@ -1448,6 +1448,7 @@ int sqliteBtreeData(BtCursor *pCur, int offset, int amt, char *zBuf)
 
 /*
 ** Compare an external key against the key on the entry that pCur points to.
+** 将外部key与游标指向的Page上的key进行比较
 **
 ** The external key is pKey and is nKey bytes long.  The last nIgnore bytes
 ** of the key associated with pCur are ignored, as if they do not exist.
@@ -1456,11 +1457,11 @@ int sqliteBtreeData(BtCursor *pCur, int offset, int amt, char *zBuf)
 **
 ** The comparison result is written to *pRes as follows:
 **
-**    *pRes<0    This means pCur<pKey
+**    *pRes<0    This means pCur<pKey, pKey比游标指向的条目所有的Key要小
 **
-**    *pRes==0   This means pCur==pKey for all nKey bytes
+**    *pRes==0   This means pCur==pKey for all nKey bytes, pKey位于游标指向的Page中
 **
-**    *pRes>0    This means pCur>pKey
+**    *pRes>0    This means pCur>pKey, pKey比游标指向的条目所有的key要大
 **
 ** When one key is an exact prefix of the other, the shorter key is
 ** considered less than the longer one.  In order to be equal the
@@ -1683,7 +1684,7 @@ int sqliteBtreeLast(BtCursor *pCur, int *pRes)
 
 /* Move the cursor so that it points to an entry near pKey.
 ** Return a success code.
-** 移动光标，使其指向pKey附近的条目.返回成功代码
+** 移动光标，使其指向pKey附近的条目(找到对应的page).返回成功代码
 **
 ** If an exact match is not found, then the cursor is always
 ** left pointing at a leaf page which would hold the entry if it
@@ -1713,6 +1714,7 @@ int sqliteBtreeMoveto(BtCursor *pCur, const void *pKey, int nKey, int *pRes)
   if (pCur->pPage == 0)
     return SQLITE_ABORT;
   pCur->bSkipNext = 0;
+  // 先将光标指向root Page
   rc = moveToRoot(pCur);
   if (rc)
     return rc;
@@ -1720,9 +1722,11 @@ int sqliteBtreeMoveto(BtCursor *pCur, const void *pKey, int nKey, int *pRes)
   {
     int lwr, upr;
     Pgno chldPg;
+    // 光标指向的Page
     MemPage *pPage = pCur->pPage;
     int c = -1;
     lwr = 0;
+    // 光标指向的Page拥有的Cell
     upr = pPage->nCell - 1;
     while (lwr <= upr)
     {

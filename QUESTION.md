@@ -16,7 +16,9 @@
 
 
 ### sqlitepager_begin为什么传入pData而不是Pager?
-sqlitepager_begin只有两个地方会被调用到，分别是sqlitepager_begin和sqliteBtreeBeginTrans.
+在Btree和pager之间交互的就是pData，当从磁盘读取到pData后，pager和btree都是围绕着这块内存空间做操作。使用pData可以使得btree和pager耦合的不是那么紧密?
+本质上sqlitepager_begin是开启整个数据库的事务,因此传入的pData只是为了获取到Pager指针。这更像是将参数抽象的一种方法，传入具体的pager指针可以，传入pData根据内存空间布局来获取pager也可以，那么为何不用更加通用的pData，因为btree也好pager也好本质上都是对pData的操作。
+
 
 ### MemPage中的n为什么要以结构体的形式?不能拆分或者以另一个结构体对象的形式嘛?
 1. 不已另一个对象的形式：为了在序列化反序列话的时候将结构体的数据也加入到其中
@@ -44,4 +46,7 @@ MemPage是保存在磁盘中的Page在内存中的结构。
 ```
 这里表示page的额外信息等于MemPage大小减去包含其中的data部分后剩余的大小。
 而EXTRA_SIZE是在内存中分配的。并不会记录到磁盘中，Page在磁盘中的大小始终是SQLITE_PAGE_SIZE
+
+### 如何通过key找到对应的Page
+可能跟游标有关。
 
